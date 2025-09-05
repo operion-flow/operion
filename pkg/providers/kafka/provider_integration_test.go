@@ -122,10 +122,10 @@ func TestKafkaProvider_IntegrationWithRealKafka(t *testing.T) {
 
 	// Create test workflow with Kafka trigger
 	workflows := []*models.Workflow{
-		createTestWorkflow("integration-workflow", []*models.WorkflowTrigger{
-			createKafkaTrigger("integration-trigger", "integration-source", map[string]any{
+		createTestWorkflow("integration-workflow", []*models.WorkflowNode{
+			createKafkaTriggerNode("integration-trigger", "integration-source", map[string]any{
 				"topic":          testTopic,
-				"brokers":        kafkaSetup.brokers,
+				"brokers":        []string{kafkaSetup.brokers},
 				"consumer_group": "operion-integration-test",
 			}),
 		}),
@@ -237,10 +237,10 @@ func TestKafkaProvider_IntegrationWithJSONSchemaValidation(t *testing.T) {
 
 	// Create test workflow with Kafka trigger and JSON schema
 	workflows := []*models.Workflow{
-		createTestWorkflow("validation-workflow", []*models.WorkflowTrigger{
-			createKafkaTrigger("validation-trigger", "validation-source", map[string]any{
+		createTestWorkflow("validation-workflow", []*models.WorkflowNode{
+			createKafkaTriggerNode("validation-trigger", "validation-source", map[string]any{
 				"topic":          testTopic,
-				"brokers":        kafkaSetup.brokers,
+				"brokers":        []string{kafkaSetup.brokers},
 				"consumer_group": "operion-validation-test",
 				"json_schema": map[string]any{
 					"type": "object",
@@ -344,24 +344,24 @@ func TestKafkaProvider_IntegrationConsumerSharing(t *testing.T) {
 
 	// Create test workflows with sources that should share consumers
 	workflows := []*models.Workflow{
-		createTestWorkflow("shared-workflow-1", []*models.WorkflowTrigger{
+		createTestWorkflow("shared-workflow-1", []*models.WorkflowNode{
 			// These two sources should share the same consumer (same connection details)
-			createKafkaTrigger("shared-trigger-1", "shared-source-1", map[string]any{
+			createKafkaTriggerNode("shared-trigger-1", "shared-source-1", map[string]any{
 				"topic":          testTopic1,
-				"brokers":        kafkaSetup.brokers,
+				"brokers":        []string{kafkaSetup.brokers},
 				"consumer_group": "operion-shared-test",
 			}),
-			createKafkaTrigger("shared-trigger-2", "shared-source-2", map[string]any{
+			createKafkaTriggerNode("shared-trigger-2", "shared-source-2", map[string]any{
 				"topic":          testTopic1,
-				"brokers":        kafkaSetup.brokers,
+				"brokers":        []string{kafkaSetup.brokers},
 				"consumer_group": "operion-shared-test",
 			}),
 		}),
-		createTestWorkflow("different-workflow", []*models.WorkflowTrigger{
+		createTestWorkflow("different-workflow", []*models.WorkflowNode{
 			// This source should have a different consumer (different topic)
-			createKafkaTrigger("different-trigger", "different-source", map[string]any{
+			createKafkaTriggerNode("different-trigger", "different-source", map[string]any{
 				"topic":          testTopic2,
-				"brokers":        kafkaSetup.brokers,
+				"brokers":        []string{kafkaSetup.brokers},
 				"consumer_group": "operion-different-test",
 			}),
 		}),

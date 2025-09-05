@@ -29,6 +29,8 @@ test:
 
 test-integration:
 	@echo "Running integration tests (requires Docker)..."
+	@echo "Testing Web API integration..."
+	go test -tags=integration -v ./pkg/web/
 	@echo "Testing Kafka provider integration..."
 	go test -tags=integration -v ./pkg/providers/kafka/persistence/
 	go test -tags=integration -v ./pkg/providers/kafka/
