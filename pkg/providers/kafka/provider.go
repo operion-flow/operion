@@ -183,6 +183,94 @@ func (k *KafkaProvider) Configure(workflows []*models.Workflow) (map[string]stri
 	return triggerToSource, nil
 }
 
+// ConfigureTrigger configures an individual trigger with the provider.
+func (k *KafkaProvider) ConfigureTrigger(ctx context.Context, trigger protocol.TriggerConfig) (string, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.logger.Info("Configuring individual Kafka trigger",
+		"trigger_id", trigger.TriggerID,
+		"workflow_id", trigger.WorkflowID,
+		"node_type", trigger.NodeType)
+
+	// Create a temporary workflow node from the trigger config for compatibility with existing logic
+	node := &models.WorkflowNode{
+		ID:     trigger.TriggerID,
+		Type:   trigger.NodeType,
+		Config: trigger.Config,
+	}
+
+	// Process the Kafka trigger node to create/update source
+	sourceID := k.processKafkaTriggerNode(trigger.WorkflowID, node)
+	if sourceID == "" {
+		return "", errors.New("failed to create/configure Kafka source for trigger")
+	}
+
+	// Update consumer managers to reflect the new source
+	if err := k.updateConsumerManagers(); err != nil {
+		k.logger.Error("Failed to update consumer managers after trigger configuration", "error", err)
+
+		return sourceID, err // Return sourceID but also the error
+	}
+
+	// If the provider is already started, start any new consumer managers
+	if k.started {
+		for connectionDetailsID, consumerManager := range k.consumers {
+			if consumerManager.consumer == nil { // New consumer manager that hasn't been started
+				if err := k.startConsumerManager(ctx, consumerManager); err != nil {
+					k.logger.Error("Failed to start new consumer manager",
+						"connection_details_id", connectionDetailsID,
+						"error", err)
+				}
+			}
+		}
+	}
+
+	k.logger.Info("Successfully configured Kafka trigger",
+		"trigger_id", trigger.TriggerID,
+		"source_id", sourceID)
+
+	return sourceID, nil
+}
+
+// RemoveTrigger removes an individual trigger from the provider.
+func (k *KafkaProvider) RemoveTrigger(ctx context.Context, triggerID, sourceID string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.logger.Info("Removing Kafka trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	if sourceID == "" {
+		k.logger.Warn("No source ID provided for trigger removal", "trigger_id", triggerID)
+
+		return nil // Nothing to remove
+	}
+
+	// Remove source from persistence
+	if err := k.persistence.DeleteKafkaSource(sourceID); err != nil {
+		k.logger.Error("Failed to remove Kafka source from persistence",
+			"source_id", sourceID,
+			"error", err)
+
+		return err
+	}
+
+	// Update consumer managers to reflect the removed source
+	if err := k.updateConsumerManagers(); err != nil {
+		k.logger.Error("Failed to update consumer managers after trigger removal", "error", err)
+
+		return err
+	}
+
+	k.logger.Info("Successfully removed Kafka trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	return nil
+}
+
 // Prepare performs final preparation before starting the provider.
 func (k *KafkaProvider) Prepare(ctx context.Context) error {
 	if k.persistence == nil {

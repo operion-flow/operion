@@ -90,6 +90,16 @@ func (eb *WatermillEventBus) Subscribe(ctx context.Context) error {
 				event = &events.WorkflowExecutionResumed{}
 			case events.WorkflowVariablesUpdatedEvent:
 				event = &events.WorkflowVariablesUpdated{}
+			case events.TriggerCreatedEventType:
+				event = &events.TriggerCreatedEvent{}
+			case events.TriggerUpdatedEventType:
+				event = &events.TriggerUpdatedEvent{}
+			case events.TriggerDeletedEventType:
+				event = &events.TriggerDeletedEvent{}
+			case events.WorkflowPublishedEventType:
+				event = &events.WorkflowPublishedEvent{}
+			case events.WorkflowUnpublishedEventType:
+				event = &events.WorkflowUnpublishedEvent{}
 			default:
 				msg.Nack()
 

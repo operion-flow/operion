@@ -49,7 +49,8 @@ func TestNewProviderManager_Constructor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := NewProviderManager(tt.id, mockPersistence, mockSourceEventBus, logger, testRegistry, tt.filter)
+			mockEventBus := &mocks.MockEventBus{}
+			manager := NewProviderManager(tt.id, mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, tt.filter)
 
 			assert.NotNil(t, manager)
 			assert.Equal(t, tt.id, manager.id)
@@ -70,7 +71,8 @@ func TestProviderManager_CreateSourceEventCallback_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Mock successful source event publishing
 	mockSourceEventBus.On("PublishSourceEvent", mock.Anything, mock.AnythingOfType("*events.SourceEvent")).Return(nil)
@@ -94,7 +96,8 @@ func TestProviderManager_CreateSourceEventCallback_ValidationFailure(t *testing.
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	callback := manager.createSourceEventCallback()
 
@@ -114,7 +117,8 @@ func TestProviderManager_CreateSourceEventCallback_PublishFailure(t *testing.T) 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Mock source event publishing failure
 	mockSourceEventBus.On("PublishSourceEvent", mock.Anything, mock.AnythingOfType("*events.SourceEvent")).Return(assert.AnError)
@@ -139,7 +143,8 @@ func TestProviderManager_CreateSourceEventCallback_ValidEventStructure(t *testin
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	eventData := map[string]any{
 		"schedule_id": "sched-123",
@@ -177,7 +182,8 @@ func TestProviderManager_Stop_GracefulShutdown(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Add some mock providers to running providers
 	mockProvider1 := &mocks.MockProvider{}
@@ -217,7 +223,8 @@ func TestProviderManager_Stop_WithNilCancel(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Should not panic when cancel is nil
 	assert.NotPanics(t, func() {
@@ -231,7 +238,8 @@ func TestProviderManager_Stop_ProviderStopError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Add mock provider that fails to stop
 	mockProvider := &mocks.MockProvider{}
@@ -255,7 +263,8 @@ func TestProviderManager_Restart_IncrementCount(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// We can't test the full restart method since it calls os.Exit or starts a new process
 	// But we can test the restart count increment by calling it directly
@@ -271,7 +280,8 @@ func TestProviderManager_HandleSignals_Setup(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger)
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -290,7 +300,8 @@ func TestProviderManager_StartProviders_EmptyRegistry(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	testRegistry := registry.NewRegistry(logger) // Empty registry
 
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, nil)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, nil)
 
 	// Should not fail when no providers are registered
 	err := manager.startProviders(context.Background())
@@ -305,7 +316,8 @@ func TestProviderManager_StartProviders_NoMatchingFilter(t *testing.T) {
 
 	// Create a manager with a filter that won't match anything
 	filter := []string{"nonexistent-provider"}
-	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, logger, testRegistry, filter)
+	mockEventBus := &mocks.MockEventBus{}
+	manager := NewProviderManager("test-manager", mockPersistence, mockSourceEventBus, mockEventBus, logger, testRegistry, filter)
 
 	// Should not fail when filter matches no providers
 	err := manager.startProviders(context.Background())

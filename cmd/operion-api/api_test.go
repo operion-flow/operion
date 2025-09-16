@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/dukex/operion/pkg/mocks"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence/file"
 	"github.com/dukex/operion/pkg/registry"
@@ -22,10 +23,14 @@ import (
 func setupTestApp(tempDir string) *fiber.App {
 	persistence := file.NewPersistence(tempDir)
 
+	// Create mock event bus for testing
+	mockEventBus := &mocks.MockEventBus{}
+
 	app := NewAPI(
 		slog.Default(),
 		persistence,
 		registry.NewRegistry(slog.Default()),
+		mockEventBus,
 	)
 
 	return app.App()

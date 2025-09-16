@@ -60,10 +60,19 @@ func main() {
 				}
 			}()
 
+			// Create event bus for trigger lifecycle events
+			eventBus := cmd.NewEventBus(command.String("event-bus"), logger)
+			defer func() {
+				if err := eventBus.Close(); err != nil {
+					logger.ErrorContext(ctx, "Failed to close event bus", "error", err)
+				}
+			}()
+
 			api := NewAPI(
 				logger,
 				persistence,
 				registry,
+				eventBus,
 			)
 
 			err := api.Start(command.Int("port"))

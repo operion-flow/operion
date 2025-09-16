@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/dukex/operion/pkg/mocks"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence/file"
 	"github.com/dukex/operion/pkg/registry"
@@ -18,6 +19,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +33,13 @@ func setupTestHandlers(t *testing.T) (*web.APIHandlers, *services.Workflow, *ser
 	validator := validator.New(validator.WithRequiredStructEnabled())
 	registryInstance := registry.NewRegistry(slog.Default())
 
-	handlers := web.NewAPIHandlers(workflowService, publishingService, nodeService, validator, registryInstance)
+	// Create mock event bus for testing
+	mockEventBus := &mocks.MockEventBus{}
+
+	// Set up mock to accept any Publish calls and return nil (success)
+	mockEventBus.On("Publish", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	handlers := web.NewAPIHandlers(workflowService, publishingService, nodeService, validator, registryInstance, mockEventBus)
 
 	return handlers, workflowService, nodeService
 }
@@ -953,9 +961,23 @@ func TestAPIHandlers_DeleteWorkflowNode(t *testing.T) {
 			expectedStatus: http.StatusNoContent,
 		},
 		{
-			name:           "node not found",
-			workflowID:     "test-workflow-id",
-			nodeID:         "nonexistent",
+			name: "node not found",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string) {
+				t.Helper()
+				// Create workflow but don't create any nodes
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test workflow for node not found",
+					Status:      models.WorkflowStatusDraft,
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+				}
+				created, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				return created.ID, "nonexistent-node-id" // Return workflow ID and non-existent node ID
+			},
 			expectedStatus: http.StatusNotFound,
 		},
 	}

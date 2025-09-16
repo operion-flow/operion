@@ -6,6 +6,10 @@ import (
 	"github.com/dukex/operion/pkg/protocol"
 )
 
+const (
+	webhookProviderID = "webhook"
+)
+
 // WebhookProviderFactory creates instances of WebhookProvider.
 type WebhookProviderFactory struct{}
 
@@ -25,7 +29,7 @@ func (f *WebhookProviderFactory) Create(config map[string]any, logger *slog.Logg
 
 // ID returns the unique identifier for this source provider type.
 func (f *WebhookProviderFactory) ID() string {
-	return "webhook"
+	return webhookProviderID
 }
 
 // Name returns a human-readable name for this source provider.

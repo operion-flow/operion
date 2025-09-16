@@ -4,8 +4,11 @@ package web
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/dukex/operion/pkg/eventbus"
+	"github.com/dukex/operion/pkg/events"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/registry"
@@ -20,6 +23,7 @@ type APIHandlers struct {
 	nodeService       *services.Node
 	validator         *validator.Validate
 	registry          *registry.Registry
+	eventBus          eventbus.EventBus
 }
 
 func NewAPIHandlers(
@@ -28,6 +32,7 @@ func NewAPIHandlers(
 	nodeService *services.Node,
 	validator *validator.Validate,
 	registry *registry.Registry,
+	eventBus eventbus.EventBus,
 ) *APIHandlers {
 	return &APIHandlers{
 		workflowService:   workflowService,
@@ -35,6 +40,7 @@ func NewAPIHandlers(
 		nodeService:       nodeService,
 		validator:         validator,
 		registry:          registry,
+		eventBus:          eventBus,
 	}
 }
 
@@ -263,7 +269,51 @@ func (h *APIHandlers) PublishWorkflow(c fiber.Ctx) error {
 		return handleServiceError(c, err)
 	}
 
+	// Publish domain event for workflow publishing with trigger nodes
+	triggerNodes := h.extractTriggerNodes(published)
+	if len(triggerNodes) > 0 {
+		event := events.NewWorkflowPublishedEvent(
+			published.ID,
+			published.Name,
+			triggerNodes,
+			h.getUserID(c),
+		)
+
+		// Async event publishing - API doesn't wait for source configuration
+		if err := h.eventBus.Publish(c.Context(), "operion.workflow.published", event); err != nil {
+			h.logEventPublishError("workflow.published", published.ID, err)
+		}
+	}
+
 	return c.JSON(published)
+}
+
+// extractTriggerNodes extracts trigger nodes from a published workflow for event publishing.
+func (h *APIHandlers) extractTriggerNodes(workflow *models.Workflow) []events.TriggerNode {
+	triggerNodes := make([]events.TriggerNode, 0)
+
+	if workflow.Nodes == nil {
+		return triggerNodes
+	}
+
+	for _, node := range workflow.Nodes {
+		if h.isTriggerNode(node.Type) {
+			sourceID := ""
+			if node.SourceID != nil {
+				sourceID = *node.SourceID
+			}
+
+			triggerNode := events.TriggerNode{
+				ID:       node.ID,
+				Type:     node.Type,
+				Config:   node.Config,
+				SourceID: sourceID,
+			}
+			triggerNodes = append(triggerNodes, triggerNode)
+		}
+	}
+
+	return triggerNodes
 }
 
 func (h *APIHandlers) CreateDraftFromPublished(c fiber.Ctx) error {
@@ -316,7 +366,52 @@ func (h *APIHandlers) CreateWorkflowNode(c fiber.Ctx) error {
 		return handleServiceError(c, err)
 	}
 
+	// Publish domain event for trigger node creation
+	if h.isTriggerNode(node.Type) {
+		event := events.NewTriggerCreatedEvent(
+			node.ID,
+			workflowID,
+			node.Type,
+			node.Config,
+			h.getUserID(c),
+		)
+
+		// Async event publishing - API doesn't wait for source configuration
+		if err := h.eventBus.Publish(c.Context(), "operion.trigger.created", event); err != nil {
+			// Log error but don't fail the request - event publishing is non-critical
+			// Source manager can recover from missed events via eventual consistency
+			h.logEventPublishError("trigger.created", node.ID, err)
+		}
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(node)
+}
+
+// isTriggerNode checks if a node type represents a trigger node.
+func (h *APIHandlers) isTriggerNode(nodeType string) bool {
+	return strings.HasPrefix(nodeType, "trigger:")
+}
+
+// getUserID extracts the user ID from the fiber context
+// This would typically come from authentication middleware.
+func (h *APIHandlers) getUserID(c fiber.Ctx) string {
+	// TODO: Extract from auth context when authentication is implemented
+	// For now, return empty string or a default value
+	if userID := c.Get("X-User-ID"); userID != "" {
+		return userID
+	}
+
+	return "system" // Default fallback
+}
+
+// logEventPublishError logs event publishing errors without failing the request.
+func (h *APIHandlers) logEventPublishError(eventType, entityID string, err error) {
+	// TODO: Use proper structured logger when available
+	// For now, this is a placeholder for logging infrastructure
+	_ = eventType
+	_ = entityID
+	_ = err
+	// log.Error("Failed to publish event", "event_type", eventType, "entity_id", entityID, "error", err)
 }
 
 // UpdateWorkflowNode updates an existing node in the specified workflow.
@@ -349,9 +444,32 @@ func (h *APIHandlers) UpdateWorkflowNode(c fiber.Ctx) error {
 		Enabled:   req.Enabled,
 	}
 
+	// Get the existing node before update to capture previous config for event
+	existingNode, err := h.nodeService.GetNode(c.Context(), workflowID, nodeID)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
 	node, err := h.nodeService.UpdateNode(c.Context(), workflowID, nodeID, serviceReq)
 	if err != nil {
 		return handleServiceError(c, err)
+	}
+
+	// Publish domain event for trigger node updates
+	if h.isTriggerNode(node.Type) {
+		event := events.NewTriggerUpdatedEvent(
+			node.ID,
+			workflowID,
+			node.Type,
+			node.Config,
+			existingNode.Config, // Previous configuration for comparison
+			h.getUserID(c),
+		)
+
+		// Async event publishing - API doesn't wait for source configuration
+		if err := h.eventBus.Publish(c.Context(), "operion.trigger.updated", event); err != nil {
+			h.logEventPublishError("trigger.updated", node.ID, err)
+		}
 	}
 
 	return c.JSON(node)
@@ -369,9 +487,36 @@ func (h *APIHandlers) DeleteWorkflowNode(c fiber.Ctx) error {
 		return badRequest(c, "Node ID is required")
 	}
 
-	err := h.nodeService.DeleteNode(c.Context(), workflowID, nodeID)
+	// Get the node before deletion for event publishing
+	node, err := h.nodeService.GetNode(c.Context(), workflowID, nodeID)
 	if err != nil {
 		return handleServiceError(c, err)
+	}
+
+	err = h.nodeService.DeleteNode(c.Context(), workflowID, nodeID)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
+	// Publish domain event for trigger node deletion
+	if h.isTriggerNode(node.Type) {
+		sourceID := ""
+		if node.SourceID != nil {
+			sourceID = *node.SourceID
+		}
+
+		event := events.NewTriggerDeletedEvent(
+			node.ID,
+			workflowID,
+			node.Type,
+			sourceID,
+			h.getUserID(c),
+		)
+
+		// Async event publishing - API doesn't wait for source cleanup
+		if err := h.eventBus.Publish(c.Context(), "operion.trigger.deleted", event); err != nil {
+			h.logEventPublishError("trigger.deleted", node.ID, err)
+		}
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)

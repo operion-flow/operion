@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -16,6 +17,10 @@ import (
 	"github.com/dukex/operion/pkg/protocol"
 	schedulerModels "github.com/dukex/operion/pkg/providers/scheduler/models"
 	schedulerPersistence "github.com/dukex/operion/pkg/providers/scheduler/persistence"
+)
+
+const (
+	schedulerProviderID = "scheduler"
 )
 
 // SchedulerProvider implements a centralized cron-based scheduler orchestrator
@@ -185,7 +190,7 @@ func (s *SchedulerProvider) publishScheduleEvent(ctx context.Context, schedule *
 		"published_at":    now.Format("2006-01-02 15:04:05.000"),
 	}
 
-	return s.callback(ctx, schedule.SourceID, "scheduler", "schedule_due", eventData)
+	return s.callback(ctx, schedule.SourceID, schedulerProviderID, "schedule_due", eventData)
 }
 
 // ProviderLifecycle interface implementation
@@ -227,7 +232,7 @@ func (s *SchedulerProvider) Configure(workflows []*models.Workflow) (map[string]
 
 		// Filter trigger nodes with scheduler provider
 		for _, node := range wf.Nodes {
-			if node.IsTriggerNode() && node.ProviderID != nil && *node.ProviderID == "scheduler" {
+			if node.IsTriggerNode() && node.ProviderID != nil && *node.ProviderID == schedulerProviderID {
 				if cronExpr, exists := node.Config["cron_expression"]; exists {
 					if sourceID := s.processScheduleTriggerNode(wf.ID, node, cronExpr); sourceID != "" {
 						triggerToSource[node.ID] = sourceID
@@ -241,6 +246,70 @@ func (s *SchedulerProvider) Configure(workflows []*models.Workflow) (map[string]
 	s.logger.Info("Scheduler configuration completed", "created_schedules", scheduleCount)
 
 	return triggerToSource, nil
+}
+
+// ConfigureTrigger configures a single trigger source.
+// Called when individual triggers are created or when workflows are published.
+// Returns the sourceID assigned to this trigger.
+func (s *SchedulerProvider) ConfigureTrigger(ctx context.Context, trigger protocol.TriggerConfig) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.logger.Info("Configuring individual scheduler trigger",
+		"trigger_id", trigger.TriggerID,
+		"workflow_id", trigger.WorkflowID,
+		"node_type", trigger.NodeType)
+
+	// Validate that this is a scheduler trigger
+	if trigger.ProviderID != schedulerProviderID {
+		return "", fmt.Errorf("invalid provider ID for scheduler trigger: %s", trigger.ProviderID)
+	}
+
+	// Extract cron expression from config
+	cronExpr, exists := trigger.Config["cron_expression"]
+	if !exists {
+		return "", fmt.Errorf("cron_expression is required for scheduler trigger %s", trigger.TriggerID)
+	}
+
+	// Process the trigger and create schedule
+	sourceID := s.processScheduleTriggerNode(trigger.WorkflowID, &models.WorkflowNode{
+		ID:     trigger.TriggerID,
+		Type:   trigger.NodeType,
+		Config: trigger.Config,
+	}, cronExpr)
+
+	if sourceID == "" {
+		return "", fmt.Errorf("failed to create schedule for trigger %s", trigger.TriggerID)
+	}
+
+	s.logger.Info("Successfully configured scheduler trigger",
+		"trigger_id", trigger.TriggerID,
+		"source_id", sourceID,
+		"cron_expression", cronExpr)
+
+	return sourceID, nil
+}
+
+// RemoveTrigger removes a trigger source configuration.
+// Called when triggers are deleted or workflows are unpublished.
+func (s *SchedulerProvider) RemoveTrigger(ctx context.Context, triggerID, sourceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.logger.Info("Removing scheduler trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	// Delete the schedule from persistence
+	if err := s.schedulerPersistence.DeleteSchedule(sourceID); err != nil {
+		return fmt.Errorf("failed to delete schedule %s for trigger %s: %w", sourceID, triggerID, err)
+	}
+
+	s.logger.Info("Successfully removed scheduler trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	return nil
 }
 
 // Prepare performs final preparation before starting the provider.

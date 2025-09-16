@@ -104,6 +104,14 @@ func main() {
 				}
 			}()
 
+			// Create event bus for trigger lifecycle events
+			eventBus := cmd.NewEventBus(command.String("event-bus"), logger)
+			defer func() {
+				if err := eventBus.Close(); err != nil {
+					logger.Error("Failed to close event bus", "error", err)
+				}
+			}()
+
 			persistence := cmd.NewPersistence(ctx, logger, command.String("database-url"))
 			defer func() {
 				if err := persistence.Close(ctx); err != nil {
@@ -115,6 +123,7 @@ func main() {
 				managerID,
 				persistence,
 				sourceEventBus,
+				eventBus,
 				logger,
 				registry,
 				providerFilter,

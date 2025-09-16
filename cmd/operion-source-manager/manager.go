@@ -21,6 +21,7 @@ import (
 type ProviderManager struct {
 	id               string
 	sourceEventBus   eventbus.SourceEventBus
+	eventBus         eventbus.EventBus // For trigger lifecycle events
 	runningProviders map[string]protocol.Provider
 	providerMutex    sync.RWMutex
 	logger           *slog.Logger
@@ -34,6 +35,7 @@ func NewProviderManager(
 	id string,
 	persistence persistence.Persistence,
 	sourceEventBus eventbus.SourceEventBus,
+	eventBus eventbus.EventBus,
 	logger *slog.Logger,
 	registry *registry.Registry,
 	providerFilter []string,
@@ -45,6 +47,7 @@ func NewProviderManager(
 		registry:         registry,
 		restartCount:     0,
 		sourceEventBus:   sourceEventBus,
+		eventBus:         eventBus,
 		runningProviders: make(map[string]protocol.Provider),
 		providerFilter:   providerFilter,
 	}
@@ -107,7 +110,23 @@ func (spm *ProviderManager) run(ctx context.Context, cancel context.CancelFunc) 
 		return
 	}
 
-	spm.logger.Info("Source provider manager started successfully")
+	// Setup event subscriptions for trigger lifecycle events
+	if err := spm.setupEventSubscriptions(); err != nil {
+		spm.logger.Error("Failed to setup event subscriptions", "error", err)
+		spm.restart(ctx, cancel)
+
+		return
+	}
+
+	// Start event bus subscription
+	if err := spm.eventBus.Subscribe(ctx); err != nil {
+		spm.logger.Error("Failed to start event bus subscription", "error", err)
+		spm.restart(ctx, cancel)
+
+		return
+	}
+
+	spm.logger.Info("Source provider manager started successfully with event subscriptions")
 
 	// Keep running until context is cancelled
 	<-ctx.Done()

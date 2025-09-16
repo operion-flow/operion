@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -174,6 +175,66 @@ func (w *WebhookProvider) Configure(workflows []*models.Workflow) (map[string]st
 	}
 
 	return triggerToSource, nil
+}
+
+// ConfigureTrigger configures a single trigger source.
+// Called when individual triggers are created or when workflows are published.
+// Returns the sourceID assigned to this trigger.
+func (w *WebhookProvider) ConfigureTrigger(ctx context.Context, trigger protocol.TriggerConfig) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.logger.Info("Configuring individual webhook trigger",
+		"trigger_id", trigger.TriggerID,
+		"workflow_id", trigger.WorkflowID,
+		"node_type", trigger.NodeType)
+
+	// Validate that this is a webhook trigger
+	if trigger.ProviderID != "webhook" {
+		return "", fmt.Errorf("invalid provider ID for webhook trigger: %s", trigger.ProviderID)
+	}
+
+	// Process the trigger and create webhook source
+	sourceID := w.processWebhookTriggerNode(trigger.WorkflowID, &models.WorkflowNode{
+		ID:     trigger.TriggerID,
+		Type:   trigger.NodeType,
+		Config: trigger.Config,
+	})
+
+	if sourceID == "" {
+		return "", fmt.Errorf("failed to create webhook source for trigger %s", trigger.TriggerID)
+	}
+
+	w.logger.Info("Successfully configured webhook trigger",
+		"trigger_id", trigger.TriggerID,
+		"source_id", sourceID)
+
+	return sourceID, nil
+}
+
+// RemoveTrigger removes a trigger source configuration.
+// Called when triggers are deleted or workflows are unpublished.
+func (w *WebhookProvider) RemoveTrigger(ctx context.Context, triggerID, sourceID string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.logger.Info("Removing webhook trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	// Delete the webhook source from persistence
+	if err := w.webhookPersistence.DeleteWebhookSource(sourceID); err != nil {
+		return fmt.Errorf("failed to delete webhook source %s for trigger %s: %w", sourceID, triggerID, err)
+	}
+
+	// Note: In a more complete implementation, we would unregister from the webhook server
+	// For now, we just remove from persistence and the server will handle cleanup on restart
+
+	w.logger.Info("Successfully removed webhook trigger",
+		"trigger_id", triggerID,
+		"source_id", sourceID)
+
+	return nil
 }
 
 // Prepare performs final preparation before starting the provider.
