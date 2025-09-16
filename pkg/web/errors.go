@@ -1,6 +1,8 @@
 package web
 
 import (
+	"errors"
+
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/services"
 	"github.com/gofiber/fiber/v3"
@@ -38,6 +40,17 @@ func internalError(c fiber.Ctx, err error) error {
 func handleServiceError(c fiber.Ctx, err error) error {
 	switch {
 	case services.IsValidationError(err):
+		// Check for specific node errors to provide better error messages
+		if errors.Is(err, services.ErrNodeNotFound) {
+			problem := problems.NewStatusProblem(404).
+				WithInstance(c.Path()).
+				WithType("node_not_found").
+				WithDetail("node not found")
+
+			return c.Status(fiber.StatusNotFound).JSON(problem)
+		}
+
+		// Default validation error handling
 		problem := problems.NewStatusProblem(400).
 			WithInstance(c.Path()).
 			WithType("validation_error").
@@ -45,11 +58,27 @@ func handleServiceError(c fiber.Ctx, err error) error {
 
 		return c.Status(fiber.StatusBadRequest).JSON(problem)
 
+	case services.IsConflictError(err):
+		problem := problems.NewStatusProblem(409).
+			WithInstance(c.Path()).
+			WithType("conflict").
+			WithDetail(err.Error())
+
+		return c.Status(fiber.StatusConflict).JSON(problem)
+
 	case persistence.IsWorkflowNotFound(err):
 		problem := problems.NewStatusProblem(404).
 			WithInstance(c.Path()).
 			WithType("workflow_not_found").
 			WithDetail("workflow not found")
+
+		return c.Status(fiber.StatusNotFound).JSON(problem)
+
+	case persistence.IsNodeNotFound(err):
+		problem := problems.NewStatusProblem(404).
+			WithInstance(c.Path()).
+			WithType("node_not_found").
+			WithDetail("node not found")
 
 		return c.Status(fiber.StatusNotFound).JSON(problem)
 

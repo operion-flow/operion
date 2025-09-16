@@ -18,9 +18,9 @@ type Workflow struct {
 	Name            string          `json:"name"                   validate:"required,min=3"`
 	Description     string          `json:"description"            validate:"required"`
 	Status          WorkflowStatus  `json:"status"                 validate:"required"`
-	WorkflowGroupID string          `json:"workflow_group_id"` // Stable ID linking all versions
-	Nodes           []*WorkflowNode `json:"nodes"`             // Node instances in the workflow
-	Connections     []*Connection   `json:"connections"`       // Connections between nodes
+	WorkflowGroupID string          `json:"workflow_group_id"`     // Stable ID linking all versions
+	Nodes           []*WorkflowNode `json:"nodes,omitempty"`       // Node instances in the workflow
+	Connections     []*Connection   `json:"connections,omitempty"` // Connections between nodes
 	Variables       map[string]any  `json:"variables"`
 	Metadata        map[string]any  `json:"metadata,omitempty"`
 	Owner           string          `json:"owner"`

@@ -292,7 +292,7 @@ func (wr *WorkflowRepository) PublishWorkflow(ctx context.Context, workflowID st
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Get all workflows to find ones in the same group

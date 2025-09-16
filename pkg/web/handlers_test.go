@@ -21,23 +21,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestHandlers(t *testing.T) (*web.APIHandlers, *services.Workflow) {
+func setupTestHandlers(t *testing.T) (*web.APIHandlers, *services.Workflow, *services.Node) {
 	t.Helper()
 	tempDir := t.TempDir()
 	persistence := file.NewPersistence(tempDir)
 	workflowService := services.NewWorkflow(persistence)
 	publishingService := services.NewPublishing(persistence)
+	nodeService := services.NewNode(persistence)
 	validator := validator.New(validator.WithRequiredStructEnabled())
 	registryInstance := registry.NewRegistry(slog.Default())
 
-	handlers := web.NewAPIHandlers(workflowService, publishingService, validator, registryInstance)
+	handlers := web.NewAPIHandlers(workflowService, publishingService, nodeService, validator, registryInstance)
 
-	return handlers, workflowService
+	return handlers, workflowService, nodeService
 }
 
-func setupTestApp(t *testing.T) (*fiber.App, *services.Workflow) {
+func setupTestApp(t *testing.T) (*fiber.App, *services.Workflow, *services.Node) {
 	t.Helper()
-	handlers, workflowService := setupTestHandlers(t)
+	handlers, workflowService, nodeService := setupTestHandlers(t)
 	app := fiber.New()
 
 	w := app.Group("/workflows")
@@ -49,7 +50,13 @@ func setupTestApp(t *testing.T) (*fiber.App, *services.Workflow) {
 	w.Post("/:id/publish", handlers.PublishWorkflow)
 	w.Post("/groups/:groupId/create-draft", handlers.CreateDraftFromPublished)
 
-	return app, workflowService
+	// Node endpoints
+	w.Post("/:id/nodes", handlers.CreateWorkflowNode)
+	w.Get("/:id/nodes/:nodeId", handlers.GetWorkflowNode)
+	w.Patch("/:id/nodes/:nodeId", handlers.UpdateWorkflowNode)
+	w.Delete("/:id/nodes/:nodeId", handlers.DeleteWorkflowNode)
+
+	return app, workflowService, nodeService
 }
 
 func TestAPIHandlers_CreateWorkflow(t *testing.T) {
@@ -137,7 +144,7 @@ func TestAPIHandlers_CreateWorkflow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, _ := setupTestApp(t)
+			app, _, _ := setupTestApp(t)
 
 			var (
 				body []byte
@@ -283,7 +290,7 @@ func TestAPIHandlers_UpdateWorkflow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, workflowService := setupTestApp(t)
+			app, workflowService, _ := setupTestApp(t)
 
 			var workflowID = "non-existent-id"
 
@@ -352,7 +359,7 @@ func TestAPIHandlers_DeleteWorkflow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, workflowService := setupTestApp(t)
+			app, workflowService, _ := setupTestApp(t)
 
 			var workflowID = "non-existent-id"
 
@@ -385,7 +392,7 @@ func TestAPIHandlers_DeleteWorkflow(t *testing.T) {
 func TestAPIHandlers_GetWorkflows_WithOwnerFilter(t *testing.T) {
 	t.Parallel()
 
-	app, workflowService := setupTestApp(t)
+	app, workflowService, _ := setupTestApp(t)
 
 	// Create test workflows with different owners
 	workflow1 := &models.Workflow{
@@ -564,7 +571,7 @@ func TestAPIHandlers_PublishWorkflow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, workflowService := setupTestApp(t)
+			app, workflowService, _ := setupTestApp(t)
 
 			var workflowID = "non-existent-id"
 
@@ -654,7 +661,7 @@ func TestAPIHandlers_CreateDraftFromPublished(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, workflowService := setupTestApp(t)
+			app, workflowService, _ := setupTestApp(t)
 
 			var groupID = "non-existent-group"
 
@@ -745,7 +752,7 @@ func TestAPIHandlers_GetWorkflows_ResponseMetadata(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app, workflowService := setupTestApp(t)
+			app, workflowService, _ := setupTestApp(t)
 
 			// Create a test workflow to ensure non-empty response
 			workflow := &models.Workflow{
@@ -799,4 +806,389 @@ func TestAPIHandlers_GetWorkflows_ResponseMetadata(t *testing.T) {
 			assert.Contains(t, response, "has_next_page", "Response should include has_next_page")
 		})
 	}
+}
+
+func TestAPIHandlers_CreateWorkflowNode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setupWorkflow  func(t *testing.T, workflowService *services.Workflow) string
+		workflowID     string
+		requestBody    interface{}
+		expectedStatus int
+		expectedError  string
+		validateResult func(t *testing.T, body []byte)
+	}{
+		{
+			name: "successful node creation",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow) string {
+				t.Helper()
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test Description",
+					Status:      models.WorkflowStatusDraft,
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+				}
+				created, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				return created.ID
+			},
+			requestBody: web.CreateNodeRequest{
+				Type:      "log",
+				Category:  "action",
+				Name:      "Test Node",
+				Config:    map[string]any{"message": "test"},
+				Enabled:   true,
+				PositionX: 100,
+				PositionY: 200,
+			},
+			expectedStatus: http.StatusCreated,
+			validateResult: func(t *testing.T, body []byte) {
+				t.Helper()
+				var node models.WorkflowNode
+				err := json.Unmarshal(body, &node)
+				require.NoError(t, err)
+				assert.Equal(t, "Test Node", node.Name)
+				assert.Equal(t, "log", node.Type)
+				assert.Equal(t, models.CategoryTypeAction, node.Category)
+				assert.Equal(t, true, node.Enabled)
+				assert.NotEmpty(t, node.ID)
+			},
+		},
+		{
+			name:       "workflow not found",
+			workflowID: "nonexistent",
+			requestBody: web.CreateNodeRequest{
+				Type:     "log",
+				Category: "action",
+				Name:     "Test",
+			},
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			app, workflowService, _ := setupTestApp(t)
+
+			workflowID := tt.workflowID
+			if tt.setupWorkflow != nil {
+				workflowID = tt.setupWorkflow(t, workflowService)
+			}
+
+			var (
+				body []byte
+				err  error
+			)
+
+			if tt.requestBody != nil {
+				body, err = json.Marshal(tt.requestBody)
+				require.NoError(t, err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflowID+"/nodes", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() { _ = resp.Body.Close() }()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+
+			if tt.validateResult != nil {
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				tt.validateResult(t, respBody)
+			}
+		})
+	}
+}
+
+func TestAPIHandlers_DeleteWorkflowNode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setupWorkflow  func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string)
+		workflowID     string
+		nodeID         string
+		expectedStatus int
+	}{
+		{
+			name: "successful node deletion",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string) {
+				t.Helper()
+				// Create workflow
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test Description",
+					Status:      models.WorkflowStatusDraft,
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+				}
+				created, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				// Create node
+				createReq := &services.CreateNodeRequest{
+					Type:     "log",
+					Category: "action",
+					Name:     "Test Node",
+					Config:   map[string]any{"message": "test"},
+					Enabled:  true,
+				}
+				node, err := nodeService.CreateNode(context.Background(), created.ID, createReq)
+				require.NoError(t, err)
+
+				return created.ID, node.ID
+			},
+			expectedStatus: http.StatusNoContent,
+		},
+		{
+			name:           "node not found",
+			workflowID:     "test-workflow-id",
+			nodeID:         "nonexistent",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			app, workflowService, nodeService := setupTestApp(t)
+
+			workflowID := tt.workflowID
+
+			nodeID := tt.nodeID
+			if tt.setupWorkflow != nil {
+				workflowID, nodeID = tt.setupWorkflow(t, workflowService, nodeService)
+			}
+
+			req := httptest.NewRequest(http.MethodDelete, "/workflows/"+workflowID+"/nodes/"+nodeID, nil)
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() { _ = resp.Body.Close() }()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+		})
+	}
+}
+
+func TestAPIHandlers_GetWorkflowNode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setupWorkflow  func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string)
+		workflowID     string
+		nodeID         string
+		expectedStatus int
+		validateResult func(t *testing.T, body []byte)
+	}{
+		{
+			name: "successful action node retrieval",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string) {
+				t.Helper()
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test Description",
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+					Nodes:       []*models.WorkflowNode{},
+					Connections: []*models.Connection{},
+				}
+
+				createdWorkflow, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				nodeReq := &services.CreateNodeRequest{
+					Type:      "log",
+					Category:  "action",
+					Name:      "Test Log Node",
+					Config:    map[string]any{"message": "test message", "level": "info"},
+					Enabled:   true,
+					PositionX: 100,
+					PositionY: 200,
+				}
+
+				node, err := nodeService.CreateNode(context.Background(), createdWorkflow.ID, nodeReq)
+				require.NoError(t, err)
+
+				return createdWorkflow.ID, node.ID
+			},
+			expectedStatus: http.StatusOK,
+			validateResult: func(t *testing.T, body []byte) {
+				t.Helper()
+				var response web.NodeResponse
+				err := json.Unmarshal(body, &response)
+				require.NoError(t, err)
+
+				assert.Equal(t, "log", response.Type)
+				assert.Equal(t, "action", response.Category)
+				assert.Equal(t, "Test Log Node", response.Name)
+				assert.Equal(t, true, response.Enabled)
+				assert.Equal(t, 100, response.PositionX)
+				assert.Equal(t, 200, response.PositionY)
+				assert.Equal(t, "test message", response.Config["message"])
+				assert.Equal(t, "info", response.Config["level"])
+				assert.Nil(t, response.ProviderID)
+				assert.Nil(t, response.EventType)
+			},
+		},
+		{
+			name: "successful trigger node retrieval",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string) {
+				t.Helper()
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test Description",
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+					Nodes:       []*models.WorkflowNode{},
+					Connections: []*models.Connection{},
+				}
+
+				createdWorkflow, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				// Create a trigger node manually since the CreateNodeRequest doesn't handle trigger-specific fields
+				triggerNode := &models.WorkflowNode{
+					ID:         "trigger-test-id",
+					Type:       "trigger:scheduler",
+					Category:   models.CategoryTypeTrigger,
+					Name:       "Test Schedule Trigger",
+					Config:     map[string]any{"cron": "0 0 * * *"},
+					Enabled:    true,
+					PositionX:  50,
+					PositionY:  75,
+					ProviderID: stringPtr("scheduler"),
+					EventType:  stringPtr("schedule_due"),
+				}
+
+				// Add node directly to the workflow
+				createdWorkflow.Nodes = append(createdWorkflow.Nodes, triggerNode)
+
+				_, err = workflowService.Update(context.Background(), createdWorkflow)
+				require.NoError(t, err)
+
+				return createdWorkflow.ID, triggerNode.ID
+			},
+			expectedStatus: http.StatusOK,
+			validateResult: func(t *testing.T, body []byte) {
+				t.Helper()
+				var response web.NodeResponse
+				err := json.Unmarshal(body, &response)
+				require.NoError(t, err)
+
+				assert.Equal(t, "trigger:scheduler", response.Type)
+				assert.Equal(t, "trigger", response.Category)
+				assert.Equal(t, "Test Schedule Trigger", response.Name)
+				assert.Equal(t, true, response.Enabled)
+				assert.Equal(t, 50, response.PositionX)
+				assert.Equal(t, 75, response.PositionY)
+				assert.Equal(t, "0 0 * * *", response.Config["cron"])
+				assert.NotNil(t, response.ProviderID)
+				assert.Equal(t, "scheduler", *response.ProviderID)
+				assert.NotNil(t, response.EventType)
+				assert.Equal(t, "schedule_due", *response.EventType)
+			},
+		},
+		{
+			name:           "workflow not found",
+			workflowID:     "nonexistent-workflow",
+			nodeID:         "some-node",
+			expectedStatus: http.StatusNotFound, // Now properly returns 404 for non-existent workflows
+			validateResult: func(t *testing.T, body []byte) {
+				t.Helper()
+				// Check if the body contains error information
+				if len(body) > 0 {
+					var response map[string]any
+					err := json.Unmarshal(body, &response)
+					if err == nil && response["error"] != nil {
+						assert.Contains(t, response["error"], "not found")
+					}
+				}
+			},
+		},
+		{
+			name: "node not found",
+			setupWorkflow: func(t *testing.T, workflowService *services.Workflow, nodeService *services.Node) (string, string) {
+				t.Helper()
+				workflow := &models.Workflow{
+					Name:        "Test Workflow",
+					Description: "Test Description",
+					Owner:       "test-user",
+					Variables:   map[string]any{},
+					Metadata:    map[string]any{},
+					Nodes:       []*models.WorkflowNode{},
+					Connections: []*models.Connection{},
+				}
+
+				createdWorkflow, err := workflowService.Create(context.Background(), workflow)
+				require.NoError(t, err)
+
+				return createdWorkflow.ID, "nonexistent-node"
+			},
+			expectedStatus: http.StatusNotFound,
+			validateResult: func(t *testing.T, body []byte) {
+				t.Helper()
+				// Check if the body contains error information
+				if len(body) > 0 {
+					var response map[string]any
+					err := json.Unmarshal(body, &response)
+					if err == nil && response["error"] != nil {
+						assert.Contains(t, response["error"], "not found")
+					}
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			app, workflowService, nodeService := setupTestApp(t)
+
+			workflowID := tt.workflowID
+			nodeID := tt.nodeID
+
+			if tt.setupWorkflow != nil {
+				workflowID, nodeID = tt.setupWorkflow(t, workflowService, nodeService)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/workflows/"+workflowID+"/nodes/"+nodeID, nil)
+
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			defer func() { _ = resp.Body.Close() }()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+
+			if tt.validateResult != nil {
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				tt.validateResult(t, body)
+			}
+		})
+	}
+}
+
+// Helper function to get string pointer.
+func stringPtr(s string) *string {
+	return &s
 }

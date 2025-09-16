@@ -73,6 +73,7 @@ type NodeRepository interface {
 	SaveNode(ctx context.Context, workflowID string, node *models.WorkflowNode) error
 	UpdateNode(ctx context.Context, workflowID string, node *models.WorkflowNode) error
 	DeleteNode(ctx context.Context, workflowID, nodeID string) error
+	DeleteNodeWithConnections(ctx context.Context, workflowID, nodeID string) error
 
 	// Trigger node operations
 	FindTriggerNodesBySourceEventAndProvider(ctx context.Context, sourceID, eventType, providerID string, status models.WorkflowStatus) ([]*models.TriggerNodeMatch, error)

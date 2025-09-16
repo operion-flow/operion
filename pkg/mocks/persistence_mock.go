@@ -178,6 +178,12 @@ func (nr *MockNodeRepository) DeleteNode(ctx context.Context, workflowID, nodeID
 	return errors.New("mock node repository not implemented during transition")
 }
 
+func (nr *MockNodeRepository) DeleteNodeWithConnections(ctx context.Context, workflowID, nodeID string) error {
+	args := nr.Called(ctx, workflowID, nodeID)
+
+	return args.Error(0)
+}
+
 func (nr *MockNodeRepository) FindTriggerNodesBySourceEventAndProvider(ctx context.Context, sourceID, eventType, providerID string, status models.WorkflowStatus) ([]*models.TriggerNodeMatch, error) {
 	args := nr.Called(ctx, sourceID, eventType, providerID, status)
 	if args.Get(0) == nil {

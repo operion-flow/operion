@@ -650,7 +650,7 @@ func (r *WorkflowRepository) PublishWorkflow(ctx context.Context, workflowID str
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Set all other workflows in group to unpublished

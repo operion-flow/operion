@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 )
 
 // NodeRepository handles node-related database operations.
@@ -73,7 +74,7 @@ func (nr *NodeRepository) GetNodeByWorkflow(ctx context.Context, workflowID, nod
 	node, err := nr.scanNode(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("node not found: %s in workflow %s", nodeID, workflowID)
+			return nil, persistence.ErrNodeNotFound
 		}
 
 		return nil, fmt.Errorf("failed to scan node: %w", err)
@@ -154,7 +155,7 @@ func (nr *NodeRepository) DeleteNode(ctx context.Context, workflowID, nodeID str
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("node not found: %s in workflow %s", nodeID, workflowID)
+		return persistence.ErrNodeNotFound
 	}
 
 	return nil
@@ -282,4 +283,46 @@ func (nr *NodeRepository) scanNode(scanner interface {
 	}
 
 	return &node, nil
+}
+
+// DeleteNodeWithConnections removes a node and all associated connections in a single transaction.
+func (nr *NodeRepository) DeleteNodeWithConnections(ctx context.Context, workflowID, nodeID string) error {
+	tx, err := nr.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		if rollErr := tx.Rollback(); rollErr != nil {
+			nr.logger.ErrorContext(ctx, "failed to rollback transaction", "error", rollErr)
+		}
+	}()
+
+	// Delete connections where node is source or target
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM workflow_connections 
+		WHERE workflow_id = $1 AND (source_node_id = $2 OR target_node_id = $2)
+	`, workflowID, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to delete connections: %w", err)
+	}
+
+	// Delete the node
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM workflow_nodes WHERE workflow_id = $1 AND id = $2
+	`, workflowID, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to delete node: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return persistence.ErrNodeNotFound
+	}
+
+	return tx.Commit()
 }

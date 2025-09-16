@@ -17,6 +17,7 @@ import (
 type APIHandlers struct {
 	workflowService   *services.Workflow
 	publishingService *services.Publishing
+	nodeService       *services.Node
 	validator         *validator.Validate
 	registry          *registry.Registry
 }
@@ -24,12 +25,14 @@ type APIHandlers struct {
 func NewAPIHandlers(
 	workflowService *services.Workflow,
 	publishingService *services.Publishing,
+	nodeService *services.Node,
 	validator *validator.Validate,
 	registry *registry.Registry,
 ) *APIHandlers {
 	return &APIHandlers{
 		workflowService:   workflowService,
 		publishingService: publishingService,
+		nodeService:       nodeService,
 		validator:         validator,
 		registry:          registry,
 	}
@@ -279,4 +282,120 @@ func (h *APIHandlers) CreateDraftFromPublished(c fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(draft)
+}
+
+// CreateWorkflowNode creates a new node in the specified workflow.
+func (h *APIHandlers) CreateWorkflowNode(c fiber.Ctx) error {
+	workflowID := c.Params("id")
+	if workflowID == "" {
+		return badRequest(c, "Workflow ID is required")
+	}
+
+	var req CreateNodeRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return badRequest(c, "Invalid JSON format")
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		return badRequest(c, err.Error())
+	}
+
+	// Convert web request to service request
+	serviceReq := &services.CreateNodeRequest{
+		Type:      req.Type,
+		Category:  req.Category,
+		Config:    req.Config,
+		PositionX: req.PositionX,
+		PositionY: req.PositionY,
+		Name:      req.Name,
+		Enabled:   req.Enabled,
+	}
+
+	node, err := h.nodeService.CreateNode(c.Context(), workflowID, serviceReq)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(node)
+}
+
+// UpdateWorkflowNode updates an existing node in the specified workflow.
+func (h *APIHandlers) UpdateWorkflowNode(c fiber.Ctx) error {
+	workflowID := c.Params("id")
+	if workflowID == "" {
+		return badRequest(c, "Workflow ID is required")
+	}
+
+	nodeID := c.Params("nodeId")
+	if nodeID == "" {
+		return badRequest(c, "Node ID is required")
+	}
+
+	var req UpdateNodeRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return badRequest(c, "Invalid JSON format")
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		return badRequest(c, err.Error())
+	}
+
+	// Convert web request to service request
+	serviceReq := &services.UpdateNodeRequest{
+		Config:    req.Config,
+		PositionX: req.PositionX,
+		PositionY: req.PositionY,
+		Name:      req.Name,
+		Enabled:   req.Enabled,
+	}
+
+	node, err := h.nodeService.UpdateNode(c.Context(), workflowID, nodeID, serviceReq)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
+	return c.JSON(node)
+}
+
+// DeleteWorkflowNode deletes a node and all its associated connections from the specified workflow.
+func (h *APIHandlers) DeleteWorkflowNode(c fiber.Ctx) error {
+	workflowID := c.Params("id")
+	if workflowID == "" {
+		return badRequest(c, "Workflow ID is required")
+	}
+
+	nodeID := c.Params("nodeId")
+	if nodeID == "" {
+		return badRequest(c, "Node ID is required")
+	}
+
+	err := h.nodeService.DeleteNode(c.Context(), workflowID, nodeID)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// GetWorkflowNode retrieves a specific node from a workflow.
+func (h *APIHandlers) GetWorkflowNode(c fiber.Ctx) error {
+	workflowID := c.Params("id")
+	if workflowID == "" {
+		return badRequest(c, "Workflow ID is required")
+	}
+
+	nodeID := c.Params("nodeId")
+	if nodeID == "" {
+		return badRequest(c, "Node ID is required")
+	}
+
+	node, err := h.nodeService.GetNode(c.Context(), workflowID, nodeID)
+	if err != nil {
+		return handleServiceError(c, err)
+	}
+
+	// Transform response based on node type
+	response := TransformNodeResponse(node)
+
+	return c.JSON(response)
 }

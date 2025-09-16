@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,12 +153,12 @@ func TestNodeRepository_DeleteNode(t *testing.T) {
 	deleted, err := nodeRepo.GetNodeByWorkflow(ctx, workflow.ID, "action1")
 	require.Error(t, err)
 	assert.Nil(t, deleted)
-	assert.Contains(t, err.Error(), "node not found")
+	assert.ErrorIs(t, err, persistence.ErrNodeNotFound)
 
 	// Test deleting non-existent node
 	err = nodeRepo.DeleteNode(ctx, workflow.ID, "non_existent")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "node not found")
+	assert.ErrorIs(t, err, persistence.ErrNodeNotFound)
 }
 
 func TestNodeRepository_GetNodesByWorkflow(t *testing.T) {
@@ -318,7 +319,7 @@ func TestNodeRepository_ErrorCases(t *testing.T) {
 	node, err := nodeRepo.GetNodeByWorkflow(ctx, nonExistentWorkflowID, "some_node")
 	require.Error(t, err)
 	assert.Nil(t, node)
-	assert.Contains(t, err.Error(), "node not found")
+	assert.ErrorIs(t, err, persistence.ErrNodeNotFound)
 
 	// Test getting nodes from non-existent workflow
 	nodes, err := nodeRepo.GetNodesByWorkflow(ctx, nonExistentWorkflowID)
@@ -338,4 +339,89 @@ func TestNodeRepository_ErrorCases(t *testing.T) {
 	err = nodeRepo.SaveNode(ctx, nonExistentWorkflowID, newNode)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "violates foreign key constraint")
+}
+
+func TestNodeRepository_DeleteNodeWithConnections(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+
+	workflow := createTestWorkflowForNodes(t)
+
+	// Save workflow first
+	err := p.WorkflowRepository().Save(ctx, workflow)
+	require.NoError(t, err)
+
+	nodeRepo := p.NodeRepository()
+	connRepo := p.ConnectionRepository()
+
+	// Create connections involving the nodes
+	connections := []*models.Connection{
+		{
+			ID:         "conn-1",
+			SourcePort: "trigger1:success",
+			TargetPort: "action1:input",
+		},
+		{
+			ID:         "conn-2",
+			SourcePort: "action1:success",
+			TargetPort: "trigger1:input", // This should also be deleted
+		},
+	}
+
+	for _, conn := range connections {
+		err = connRepo.SaveConnection(ctx, workflow.ID, conn)
+		require.NoError(t, err)
+	}
+
+	// Verify connections exist before deletion
+	allConnections, err := connRepo.GetConnectionsByWorkflow(ctx, workflow.ID)
+	require.NoError(t, err)
+	assert.Len(t, allConnections, 2)
+
+	// Delete node with connections
+	err = nodeRepo.DeleteNodeWithConnections(ctx, workflow.ID, "trigger1")
+	require.NoError(t, err)
+
+	// Verify node is deleted
+	_, err = nodeRepo.GetNodeByWorkflow(ctx, workflow.ID, "trigger1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Verify all connections involving the deleted node are removed
+	remainingConnections, err := connRepo.GetConnectionsByWorkflow(ctx, workflow.ID)
+	require.NoError(t, err)
+	assert.Len(t, remainingConnections, 0)
+
+	// Verify other nodes are still present
+	remainingNode, err := nodeRepo.GetNodeByWorkflow(ctx, workflow.ID, "action1")
+	require.NoError(t, err)
+	assert.Equal(t, "action1", remainingNode.ID)
+}
+
+func TestNodeRepository_DeleteNodeWithConnections_NodeNotFound(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+
+	workflow := createTestWorkflowForNodes(t)
+
+	// Save workflow first
+	err := p.WorkflowRepository().Save(ctx, workflow)
+	require.NoError(t, err)
+
+	nodeRepo := p.NodeRepository()
+
+	// Try to delete non-existent node
+	err = nodeRepo.DeleteNodeWithConnections(ctx, workflow.ID, "nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, persistence.ErrNodeNotFound)
+}
+
+func TestNodeRepository_DeleteNodeWithConnections_WorkflowNotFound(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+
+	nodeRepo := p.NodeRepository()
+	nonExistentWorkflowID := uuid.New().String()
+
+	// Try to delete node from non-existent workflow
+	err := nodeRepo.DeleteNodeWithConnections(ctx, nonExistentWorkflowID, "some-node")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, persistence.ErrNodeNotFound)
 }
