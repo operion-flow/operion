@@ -6,6 +6,7 @@ package persistence
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"testing"
@@ -156,7 +157,8 @@ func TestPostgresPersistence_SaveAndRetrieveKafkaSource(t *testing.T) {
 	assert.Equal(t, source.ConnectionDetailsID, retrievedSource.ConnectionDetailsID)
 	assert.Equal(t, source.ConnectionDetails, retrievedSource.ConnectionDetails)
 	assert.Equal(t, source.JSONSchema, retrievedSource.JSONSchema)
-	assert.Equal(t, source.Configuration, retrievedSource.Configuration)
+	// Use JSON comparison to handle type differences from serialization
+	assertJSONEqual(t, source.Configuration, retrievedSource.Configuration)
 	assert.Equal(t, source.Active, retrievedSource.Active)
 	assert.True(t, !retrievedSource.CreatedAt.IsZero())
 	assert.True(t, !retrievedSource.UpdatedAt.IsZero())
@@ -326,7 +328,7 @@ func TestPostgresPersistence_UpdateKafkaSource(t *testing.T) {
 	assert.Equal(t, "events", retrievedSource.ConnectionDetails.Topic)
 	assert.Equal(t, []string{"kafka1:9092", "kafka2:9092"}, retrievedSource.ConnectionDetails.Brokers)
 	assert.Equal(t, "operion-events", retrievedSource.ConnectionDetails.ConsumerGroup)
-	assert.Equal(t, newConfig, retrievedSource.Configuration)
+	assertJSONEqual(t, newConfig, retrievedSource.Configuration)
 
 	// Verify timestamps
 	assert.Equal(t, originalCreatedAt.Unix(), retrievedSource.CreatedAt.Unix()) // CreatedAt should not change
@@ -499,11 +501,11 @@ func TestPostgresPersistence_JSONSerialization(t *testing.T) {
 	require.NotNil(t, retrievedSource)
 
 	// Verify all complex data was preserved
-	assert.Equal(t, source.JSONSchema, retrievedSource.JSONSchema)
-	assert.Equal(t, source.Configuration, retrievedSource.Configuration)
+	assertJSONEqual(t, source.JSONSchema, retrievedSource.JSONSchema)
+	assertJSONEqual(t, source.Configuration, retrievedSource.Configuration)
 
 	// Verify specific nested values
-	jsonSchema := retrievedSource.JSONSchema.(map[string]any)
+	jsonSchema := retrievedSource.JSONSchema
 	properties := jsonSchema["properties"].(map[string]any)
 	orderIdField := properties["order_id"].(map[string]any)
 	assert.Equal(t, "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", orderIdField["pattern"])
@@ -511,4 +513,18 @@ func TestPostgresPersistence_JSONSerialization(t *testing.T) {
 	consumerConfig := retrievedSource.Configuration["consumer_config"].(map[string]any)
 	assert.Equal(t, "30s", consumerConfig["session_timeout"])
 	assert.Equal(t, "10s", consumerConfig["heartbeat_interval"])
+}
+
+// assertJSONEqual compares two values by JSON marshaling and unmarshaling them
+// This handles the type differences that occur during PostgreSQL JSONB storage/retrieval
+func assertJSONEqual(t *testing.T, expected, actual any) {
+	t.Helper()
+
+	expectedJSON, err := json.Marshal(expected)
+	require.NoError(t, err)
+
+	actualJSON, err := json.Marshal(actual)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(expectedJSON), string(actualJSON))
 }

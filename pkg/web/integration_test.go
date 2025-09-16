@@ -67,6 +67,7 @@ func setupTestDB(t *testing.T) (string, func()) {
 }
 
 func setupIntegrationApp(t *testing.T, dbURL string) (*fiber.App, *services.Workflow, *services.Publishing) {
+	// Connect to database
 	t.Helper()
 	// Create persistence layer with automatic migrations
 	persistence, err := postgresql.NewPersistence(context.Background(), slog.Default(), dbURL)
@@ -195,6 +196,7 @@ func TestWorkflowCRUD_Integration(t *testing.T) {
 			defer func() { _ = resp.Body.Close() }()
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var updatedWorkflow models.Workflow
 
@@ -224,13 +226,19 @@ func TestWorkflowCRUD_Integration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var workflows []models.Workflow
+			var response struct {
+				Workflows   []models.Workflow `json:"workflows"`
+				TotalCount  int               `json:"total_count"`
+				HasNextPage bool              `json:"has_next_page"`
+			}
 
-			err = json.NewDecoder(resp.Body).Decode(&workflows)
+			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
-			assert.Len(t, workflows, 1)
-			assert.Equal(t, workflowID, workflows[0].ID)
+			assert.Len(t, response.Workflows, 1)
+			assert.Equal(t, workflowID, response.Workflows[0].ID)
+			assert.Equal(t, 1, response.TotalCount)
+			assert.False(t, response.HasNextPage)
 		})
 
 		// Test 5: List workflows with owner filter
@@ -262,14 +270,20 @@ func TestWorkflowCRUD_Integration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var workflows []models.Workflow
+			var response struct {
+				Workflows   []models.Workflow `json:"workflows"`
+				TotalCount  int               `json:"total_count"`
+				HasNextPage bool              `json:"has_next_page"`
+			}
 
-			err = json.NewDecoder(resp.Body).Decode(&workflows)
+			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
-			assert.Len(t, workflows, 1)
-			assert.Equal(t, workflowID, workflows[0].ID)
-			assert.Equal(t, "integration-test-user", workflows[0].Owner)
+			assert.Len(t, response.Workflows, 1)
+			assert.Equal(t, workflowID, response.Workflows[0].ID)
+			assert.Equal(t, "integration-test-user", response.Workflows[0].Owner)
+			assert.Equal(t, 1, response.TotalCount)
+			assert.False(t, response.HasNextPage)
 		})
 
 		// Test 6: Delete workflow
@@ -564,26 +578,26 @@ func TestGetWorkflowNode_Integration(t *testing.T) {
 		},
 		{
 			name:           "workflow not found",
-			workflowID:     "nonexistent-workflow-id",
-			nodeID:         "some-node-id",
+			workflowID:     "01234567-89ab-cdef-0123-456789abcdef",
+			nodeID:         "01234567-89ab-cdef-0123-456789abcdef",
 			expectedStatus: http.StatusNotFound,
 			validateResult: func(t *testing.T, body []byte) {
 				var response map[string]any
 				err := json.Unmarshal(body, &response)
 				require.NoError(t, err)
-				assert.Contains(t, response["error"], "not found")
+				assert.Contains(t, response["detail"], "not found")
 			},
 		},
 		{
 			name:           "node not found in existing workflow",
 			workflowID:     workflow.ID,
-			nodeID:         "nonexistent-node-id",
+			nodeID:         "fedcba98-7654-3210-fedc-ba9876543210",
 			expectedStatus: http.StatusNotFound,
 			validateResult: func(t *testing.T, body []byte) {
 				var response map[string]any
 				err := json.Unmarshal(body, &response)
 				require.NoError(t, err)
-				assert.Contains(t, response["error"], "not found")
+				assert.Contains(t, response["detail"], "not found")
 			},
 		},
 	}
@@ -616,9 +630,4 @@ func TestGetWorkflowNode_Integration(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function for integration tests.
-func stringPtr(s string) *string {
-	return &s
 }
