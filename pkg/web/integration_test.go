@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dukex/operion/pkg/mocks"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
@@ -23,6 +24,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -80,8 +82,13 @@ func setupIntegrationApp(t *testing.T, dbURL string) (*fiber.App, *services.Work
 	validator := validator.New(validator.WithRequiredStructEnabled())
 	registryInstance := registry.NewRegistry(slog.Default())
 
+	// Create mock event bus for testing
+	mockEventBus := &mocks.MockEventBus{}
+	// Set up mock to accept any Publish calls and return nil (success)
+	mockEventBus.On("Publish", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
 	// Create handlers
-	handlers := web.NewAPIHandlers(workflowService, publishingService, nodeService, validator, registryInstance)
+	handlers := web.NewAPIHandlers(workflowService, publishingService, nodeService, validator, registryInstance, mockEventBus)
 
 	// Setup Fiber app
 	app := fiber.New()
