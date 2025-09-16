@@ -9,7 +9,7 @@ import (
 
 	"github.com/dukex/operion/pkg/cmd"
 	"github.com/dukex/operion/pkg/models"
-	"github.com/dukex/operion/pkg/workflow"
+	"github.com/dukex/operion/pkg/services"
 	"github.com/go-playground/validator/v10"
 	"github.com/urfave/cli/v3"
 )
@@ -57,12 +57,18 @@ func NewValidateCommand() *cli.Command {
 
 			registry := cmd.NewRegistry(ctx, logger, command.String("plugins-path"))
 
-			workflowRepository := workflow.NewRepository(persistence)
+			workflowService := services.NewWorkflow(persistence)
 
-			workflows, err := workflowRepository.FetchAll(ctx)
+			result, err := workflowService.ListWorkflows(ctx, &services.ListWorkflowsRequest{
+				PerPage:   100,
+				Page:      1,
+				SortBy:    "created_at",
+				SortOrder: "desc",
+			})
 			if err != nil {
 				return fmt.Errorf("failed to fetch workflows: %w", err)
 			}
+			workflows := result.Workflows
 
 			logger.Info("Validating source provider configurations", "workflows", len(workflows))
 

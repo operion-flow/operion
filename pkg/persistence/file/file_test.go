@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	persistencepkg "github.com/dukex/operion/pkg/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,13 +171,15 @@ func TestPersistence_Workflows(t *testing.T) {
 	}
 
 	// Fetch all workflows
-	fetchedWorkflows, err := persistence.WorkflowRepository().GetAll(t.Context())
+	result, err := persistence.WorkflowRepository().ListWorkflows(t.Context(), persistencepkg.ListWorkflowsOptions{
+		Limit: 100, // Get all workflows for test
+	})
 	require.NoError(t, err)
-	require.Len(t, fetchedWorkflows, 3)
+	require.Len(t, result.Workflows, 3)
 
 	// Verify workflows were fetched (order might be different)
-	workflowIDs := make([]string, len(fetchedWorkflows))
-	for i, workflow := range fetchedWorkflows {
+	workflowIDs := make([]string, len(result.Workflows))
+	for i, workflow := range result.Workflows {
 		workflowIDs[i] = workflow.ID
 	}
 
@@ -191,9 +194,11 @@ func TestPersistence_Workflows_EmptyDirectory(t *testing.T) {
 	persistence := NewPersistence(testDir)
 
 	// Fetch workflows from empty directory
-	workflows, err := persistence.WorkflowRepository().GetAll(t.Context())
+	result, err := persistence.WorkflowRepository().ListWorkflows(t.Context(), persistencepkg.ListWorkflowsOptions{
+		Limit: 100,
+	})
 	require.NoError(t, err)
-	assert.Empty(t, workflows)
+	assert.Empty(t, result.Workflows)
 }
 
 func TestPersistence_Workflows_NoDirectory(t *testing.T) {
@@ -202,10 +207,12 @@ func TestPersistence_Workflows_NoDirectory(t *testing.T) {
 	persistence := NewPersistence(testDir)
 
 	// Try to fetch workflows without creating directory first
-	workflows, err := persistence.WorkflowRepository().GetAll(t.Context())
+	result, err := persistence.WorkflowRepository().ListWorkflows(t.Context(), persistencepkg.ListWorkflowsOptions{
+		Limit: 100,
+	})
 	// fs.Glob on a non-existent directory returns empty slice with no error
 	assert.NoError(t, err)
-	assert.Empty(t, workflows)
+	assert.Empty(t, result.Workflows)
 }
 
 func TestPersistence_DeleteWorkflow(t *testing.T) {

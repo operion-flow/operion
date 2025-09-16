@@ -140,6 +140,52 @@ type Example struct {
 
 The `tagalign` linter is configured to enforce this rule automatically. Run `make fmt` after making struct changes to ensure proper formatting.
 
+#### Error Handling Pattern
+The project uses a structured error handling pattern with typed errors for better maintainability and API consistency:
+
+**Service Layer Errors** (`pkg/services/errors.go`):
+```go
+// Business logic validation errors
+var (
+    ErrInvalidRequest       = errors.New("invalid request")
+    ErrInvalidSortField     = errors.New("invalid sort field")
+    ErrWorkflowNameRequired = errors.New("workflow name is required")
+    ErrNodesRequired        = errors.New("workflow must have at least one node")
+)
+
+// Structured error wrapper with context
+type ServiceError struct {
+    Op      string // Operation name
+    Code    string // Error code for API responses
+    Message string // Human-readable message
+    Err     error  // Underlying error
+}
+```
+
+**Error Classification**:
+- Use `IsValidationError(err)` to check for business logic validation errors (400 Bad Request)
+- Use `persistence.IsWorkflowNotFound(err)` for resource not found errors (404 Not Found)
+- Service errors automatically map to appropriate HTTP status codes
+
+**Handler Error Handling** (`pkg/web/errors.go`):
+```go
+// ✅ Correct - use typed error checking
+if err != nil {
+    return handleServiceError(c, err)
+}
+
+// ❌ Incorrect - avoid string-based error detection
+if strings.Contains(err.Error(), "validation failed") {
+    return badRequest(c, err.Error())
+}
+```
+
+**Benefits**:
+- Type-safe error handling with compile-time checking
+- Consistent API error responses using `problems` library format
+- Easy to extend with new error types without breaking existing handlers
+- Robust error classification that won't break with message changes
+
 ### CI/CD Pipeline
 
 The project uses GitHub Actions for continuous integration and quality assurance:

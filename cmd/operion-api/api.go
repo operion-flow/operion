@@ -7,8 +7,8 @@ import (
 
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/services"
 	"github.com/dukex/operion/pkg/web"
-	"github.com/dukex/operion/pkg/workflow"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -37,9 +37,10 @@ func NewAPI(
 }
 
 func (a *API) App() *fiber.App {
-	workflowRepository := workflow.NewRepository(a.persistence)
+	workflowService := services.NewWorkflow(a.persistence)
+	publishingService := services.NewPublishing(a.persistence)
 
-	handlers := web.NewAPIHandlers(workflowRepository, a.validate, a.registry)
+	handlers := web.NewAPIHandlers(workflowService, publishingService, a.validate, a.registry)
 
 	app := fiber.New()
 	app.Use(cors.New())
@@ -55,14 +56,19 @@ func (a *API) App() *fiber.App {
 	})
 
 	w := app.Group("/workflows")
-	w.Get("/", handlers.GetWorkflows)
-	w.Get("/:id", handlers.GetWorkflow)
+	w.Get("/", handlers.GetWorkflows)                                          // Enhanced with filtering
+	w.Post("/", handlers.CreateWorkflow)                                       // New
+	w.Get("/:id", handlers.GetWorkflow)                                        // Existing
+	w.Patch("/:id", handlers.UpdateWorkflow)                                   // New
+	w.Delete("/:id", handlers.DeleteWorkflow)                                  // New
+	w.Post("/:id/publish", handlers.PublishWorkflow)                           // New
+	w.Post("/groups/:groupId/create-draft", handlers.CreateDraftFromPublished) // New
 
-	// 	// w.Post("/", handlers.CreateWorkflow)
-	// 	// w.Patch("/:id", handlers.PatchWorkflow)
-	// 	// w.Delete("/:id", handlers.DeleteWorkflow)
-	// 	// w.Patch("/:id/steps", handlers.PatchWorkflowSteps)
-	// 	// w.Patch("/:id/triggers", handlers.PatchWorkflowTriggers)
+	// Future endpoints for nodes/connections (not in this implementation):
+	// w.Post("/:id/nodes", handlers.CreateWorkflowNode)
+	// w.Get("/:id/nodes", handlers.GetWorkflowNodes)
+	// w.Patch("/:id/nodes/:nodeId", handlers.UpdateWorkflowNode)
+	// w.Delete("/:id/nodes/:nodeId", handlers.DeleteWorkflowNode)
 
 	app.Get("/health", handlers.HealthCheck)
 

@@ -160,20 +160,18 @@ func (nr *nodeRepository) DeleteNode(ctx context.Context, workflowID, nodeID str
 }
 
 func (nr *nodeRepository) FindTriggerNodesBySourceEventAndProvider(ctx context.Context, sourceID, eventType, providerID string, status models.WorkflowStatus) ([]*models.TriggerNodeMatch, error) {
-	// Get all workflows
-	workflows, err := nr.persistence.workflowRepo.GetAll(ctx)
+	// Get all workflows with the status filter
+	result, err := nr.persistence.workflowRepo.ListWorkflows(ctx, persistence.ListWorkflowsOptions{
+		Status: &status,
+		Limit:  100, // Get all workflows for trigger matching
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workflows: %w", err)
 	}
 
 	var matches []*models.TriggerNodeMatch
 
-	for _, workflow := range workflows {
-		// Skip workflows that don't match the status filter
-		if status != "" && workflow.Status != status {
-			continue
-		}
-
+	for _, workflow := range result.Workflows {
 		// Check each node for trigger nodes that match
 		for _, node := range workflow.Nodes {
 			// Check if this is a trigger node matching our criteria

@@ -102,5 +102,35 @@ func migrations() map[int]string {
 			CREATE INDEX idx_input_coordination_execution ON input_coordination_states(execution_id);
 			CREATE INDEX idx_input_coordination_created_at ON input_coordination_states(created_at);
 		`,
+		2: `
+			-- Migration 2: Add composite indexes for ListWorkflows optimization
+			-- These indexes optimize common filtering and sorting patterns in ListWorkflows
+
+			-- Composite index for owner filtering with sorting by created_at (most common pattern)
+			CREATE INDEX idx_workflows_owner_created_at ON workflows(owner, created_at DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for status filtering with sorting by created_at
+			CREATE INDEX idx_workflows_status_created_at ON workflows(status, created_at DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for owner + status filtering with sorting by created_at
+			CREATE INDEX idx_workflows_owner_status_created_at ON workflows(owner, status, created_at DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for sorting by updated_at (second most common sort)
+			CREATE INDEX idx_workflows_updated_at_desc ON workflows(updated_at DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for owner filtering with sorting by updated_at
+			CREATE INDEX idx_workflows_owner_updated_at ON workflows(owner, updated_at DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for sorting by name (alphabetical sorting)
+			CREATE INDEX idx_workflows_name_asc ON workflows(name ASC) WHERE deleted_at IS NULL;
+			CREATE INDEX idx_workflows_name_desc ON workflows(name DESC) WHERE deleted_at IS NULL;
+
+			-- Composite index for owner filtering with sorting by name
+			CREATE INDEX idx_workflows_owner_name_asc ON workflows(owner, name ASC) WHERE deleted_at IS NULL;
+			CREATE INDEX idx_workflows_owner_name_desc ON workflows(owner, name DESC) WHERE deleted_at IS NULL;
+
+			-- General pagination index for unfiltered queries (covers all workflows with basic sorting)
+			CREATE INDEX idx_workflows_pagination ON workflows(created_at DESC, id) WHERE deleted_at IS NULL;
+		`,
 	}
 }

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // WorkflowRepository handles workflow-related database operations.
@@ -24,40 +26,29 @@ func NewWorkflowRepository(db *sql.DB, logger *slog.Logger) *WorkflowRepository 
 	return &WorkflowRepository{db: db, logger: logger}
 }
 
-// GetAll returns all workflows from the database.
-func (r *WorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, error) {
-	query := `
-		SELECT
-			id
-		  , name
-		  , description
-		  , variables
-		  , status
-		  , metadata
-		  , owner
-		  , workflow_group_id
-		  , published_at
-		  , created_at
-		  , updated_at
-		  , deleted_at
-		FROM workflows
-		WHERE deleted_at IS NULL
-		ORDER BY created_at DESC
-	`
+// ListWorkflows returns paginated and filtered workflows with optimized queries to avoid N+1 problem.
+func (r *WorkflowRepository) ListWorkflows(ctx context.Context, opts persistence.ListWorkflowsOptions) (*persistence.WorkflowListResult, error) {
+	// Build query with security validation
+	query, args, err := r.buildListQuery(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
 
-	rows, err := r.db.QueryContext(ctx, query)
+	// Execute main query for workflows
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflows: %w", err)
 	}
 
-	defer func(ctx context.Context, r *WorkflowRepository) {
-		err := rows.Close()
-		if err != nil {
-			r.logger.ErrorContext(ctx, "failed to close rows", "error", err)
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			// Intentionally ignore close errors to avoid overriding main error
+			_ = closeErr
 		}
-	}(ctx, r)
+	}()
 
-	workflows := make([]*models.Workflow, 0)
+	// Scan workflows
+	var workflows []*models.Workflow
 
 	for rows.Next() {
 		workflow, err := r.scanWorkflowBase(rows)
@@ -65,20 +56,281 @@ func (r *WorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, er
 			return nil, fmt.Errorf("failed to scan workflow: %w", err)
 		}
 
-		err = r.loadWorkflowNodes(ctx, workflow)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load workflow triggers and nodes: %w", err)
-		}
-
 		workflows = append(workflows, workflow)
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating workflows: %w", err)
 	}
 
-	return workflows, nil
+	// Get total count for pagination metadata
+	totalCount, err := r.getTotalCount(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total count: %w", err)
+	}
+
+	// Batch load related data if requested (eliminates N+1 queries)
+	if len(workflows) > 0 {
+		if err := r.loadRelatedData(ctx, workflows, opts); err != nil {
+			return nil, fmt.Errorf("failed to load related data: %w", err)
+		}
+	}
+
+	return &persistence.WorkflowListResult{
+		Workflows:   workflows,
+		TotalCount:  totalCount,
+		HasNextPage: int64(opts.Offset+opts.Limit) < totalCount,
+	}, nil
+}
+
+// buildListQuery builds a secure, parameterized query for workflow listing.
+func (r *WorkflowRepository) buildListQuery(opts persistence.ListWorkflowsOptions) (string, []any, error) {
+	baseQuery := `
+		SELECT id, name, description, variables, status, metadata, 
+			   owner, workflow_group_id, published_at, created_at, updated_at, deleted_at
+		FROM workflows
+		WHERE deleted_at IS NULL`
+
+	args := []any{}
+	argIndex := 1
+
+	// Add filters with parameter binding (secure)
+	if opts.OwnerID != "" {
+		baseQuery += fmt.Sprintf(" AND owner = $%d", argIndex)
+
+		args = append(args, opts.OwnerID)
+		argIndex++
+	}
+
+	if opts.Status != nil {
+		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
+
+		args = append(args, *opts.Status)
+		argIndex++
+	}
+
+	// Add sorting with allowlist validation (prevent SQL injection)
+	orderBy := "created_at DESC" // Default
+
+	if opts.SortBy != "" {
+		validSortColumns := map[string]string{
+			"created_at": "created_at",
+			"updated_at": "updated_at",
+			"name":       "name",
+		}
+
+		validColumn, exists := validSortColumns[opts.SortBy]
+		if !exists {
+			return "", nil, persistence.ErrInvalidSortField
+		}
+
+		validOrder := "DESC" // Default
+		if opts.SortOrder == "asc" {
+			validOrder = "ASC"
+		}
+
+		orderBy = fmt.Sprintf("%s %s", validColumn, validOrder)
+	}
+
+	baseQuery += " ORDER BY " + orderBy
+
+	// Add pagination
+	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+
+	args = append(args, opts.Limit, opts.Offset)
+
+	return baseQuery, args, nil
+}
+
+// getTotalCount gets the total count of workflows matching the filter criteria.
+func (r *WorkflowRepository) getTotalCount(ctx context.Context, opts persistence.ListWorkflowsOptions) (int64, error) {
+	baseQuery := `
+		SELECT COUNT(*)
+		FROM workflows
+		WHERE deleted_at IS NULL`
+
+	args := []any{}
+	argIndex := 1
+
+	// Apply same filters as main query
+	if opts.OwnerID != "" {
+		baseQuery += fmt.Sprintf(" AND owner = $%d", argIndex)
+
+		args = append(args, opts.OwnerID)
+		argIndex++
+	}
+
+	if opts.Status != nil {
+		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
+
+		args = append(args, *opts.Status)
+	}
+
+	var count int64
+
+	err := r.db.QueryRowContext(ctx, baseQuery, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count workflows: %w", err)
+	}
+
+	return count, nil
+}
+
+// loadRelatedData loads nodes and/or connections for workflows if requested.
+func (r *WorkflowRepository) loadRelatedData(ctx context.Context, workflows []*models.Workflow, opts persistence.ListWorkflowsOptions) error {
+	workflowIDs := make([]string, len(workflows))
+	workflowMap := make(map[string]*models.Workflow)
+
+	for i, w := range workflows {
+		workflowIDs[i] = w.ID
+		workflowMap[w.ID] = w
+	}
+
+	// Batch load nodes if requested
+	if opts.IncludeNodes {
+		if err := r.loadNodesBatch(ctx, workflowIDs, workflowMap); err != nil {
+			return fmt.Errorf("failed to batch load nodes: %w", err)
+		}
+	}
+
+	// Batch load connections if requested
+	if opts.IncludeConnections {
+		if err := r.loadConnectionsBatch(ctx, workflowIDs, workflowMap); err != nil {
+			return fmt.Errorf("failed to batch load connections: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// loadNodesBatch loads nodes for multiple workflows in a single query (eliminates N+1).
+func (r *WorkflowRepository) loadNodesBatch(ctx context.Context, workflowIDs []string, workflowMap map[string]*models.Workflow) error {
+	if len(workflowIDs) == 0 {
+		return nil
+	}
+
+	// Use PostgreSQL array parameter to avoid string concatenation
+	query := `
+		SELECT workflow_id, id, type, category, name, config, enabled, 
+			   position_x, position_y, source_id, provider_id, event_type
+		FROM workflow_nodes
+		WHERE workflow_id = ANY($1)
+		ORDER BY workflow_id, created_at`
+
+	// Convert workflow IDs to PostgreSQL array format
+	args := []any{pq.Array(workflowIDs)}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to batch load workflow nodes: %w", err)
+	}
+
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			// Intentionally ignore close errors to avoid overriding main error
+			_ = closeErr
+		}
+	}()
+
+	// Group nodes by workflow ID
+	for rows.Next() {
+		var (
+			workflowID string
+			node       models.WorkflowNode
+			configJSON []byte
+		)
+
+		err := rows.Scan(
+			&workflowID, &node.ID, &node.Type, &node.Category,
+			&node.Name, &configJSON, &node.Enabled,
+			&node.PositionX, &node.PositionY, &node.SourceID,
+			&node.ProviderID, &node.EventType,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to scan workflow node: %w", err)
+		}
+
+		// Unmarshal config JSON
+		if len(configJSON) > 0 {
+			err = json.Unmarshal(configJSON, &node.Config)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal node config: %w", err)
+			}
+		}
+
+		// Add node to corresponding workflow
+		if workflow, exists := workflowMap[workflowID]; exists {
+			if workflow.Nodes == nil {
+				workflow.Nodes = []*models.WorkflowNode{}
+			}
+
+			workflow.Nodes = append(workflow.Nodes, &node)
+		}
+	}
+
+	return rows.Err()
+}
+
+// loadConnectionsBatch loads connections for multiple workflows in a single query (eliminates N+1).
+func (r *WorkflowRepository) loadConnectionsBatch(ctx context.Context, workflowIDs []string, workflowMap map[string]*models.Workflow) error {
+	if len(workflowIDs) == 0 {
+		return nil
+	}
+
+	// Use PostgreSQL array parameter to avoid string concatenation
+	query := `
+		SELECT workflow_id, id, source_node_id, source_port, target_node_id, target_port
+		FROM workflow_connections
+		WHERE workflow_id = ANY($1)
+		ORDER BY workflow_id, created_at`
+
+	// Convert workflow IDs to PostgreSQL array format
+	args := []any{pq.Array(workflowIDs)}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to batch load workflow connections: %w", err)
+	}
+
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			// Intentionally ignore close errors to avoid overriding main error
+			_ = closeErr
+		}
+	}()
+
+	// Group connections by workflow ID
+	for rows.Next() {
+		var (
+			workflowID                                         string
+			connection                                         models.Connection
+			sourceNodeID, sourcePort, targetNodeID, targetPort string
+		)
+
+		err := rows.Scan(
+			&workflowID, &connection.ID,
+			&sourceNodeID, &sourcePort,
+			&targetNodeID, &targetPort,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to scan workflow connection: %w", err)
+		}
+
+		// Convert database format to Connection struct format
+		connection.SourcePort = sourceNodeID + ":" + sourcePort
+		connection.TargetPort = targetNodeID + ":" + targetPort
+
+		// Add connection to corresponding workflow
+		if workflow, exists := workflowMap[workflowID]; exists {
+			if workflow.Connections == nil {
+				workflow.Connections = []*models.Connection{}
+			}
+
+			workflow.Connections = append(workflow.Connections, &connection)
+		}
+	}
+
+	return rows.Err()
 }
 
 func (r *WorkflowRepository) GetByID(ctx context.Context, id string) (*models.Workflow, error) {
@@ -439,7 +691,7 @@ func (r *WorkflowRepository) CreateDraftFromPublished(ctx context.Context, workf
 	}
 
 	if publishedWorkflow == nil {
-		return nil, fmt.Errorf("no published workflow found for group: %s", workflowGroupID)
+		return nil, persistence.NewWorkflowGroupError("CreateDraftFromPublished", workflowGroupID, persistence.ErrPublishedWorkflowNotFound)
 	}
 
 	// Create draft copy
@@ -629,12 +881,12 @@ func (r *WorkflowRepository) saveWorkflowConnections(ctx context.Context, tx *sq
 		// Parse port IDs to extract node IDs and port names
 		sourceNodeID, sourcePortName, sourceOK := models.ParsePortID(connection.SourcePort)
 		if !sourceOK {
-			return fmt.Errorf("invalid source port ID format: %s", connection.SourcePort)
+			return persistence.ErrInvalidPortFormat
 		}
 
 		targetNodeID, targetPortName, targetOK := models.ParsePortID(connection.TargetPort)
 		if !targetOK {
-			return fmt.Errorf("invalid target port ID format: %s", connection.TargetPort)
+			return persistence.ErrInvalidPortFormat
 		}
 
 		query := `
@@ -706,61 +958,4 @@ func (r *WorkflowRepository) scanWorkflowBase(scanner interface {
 	}
 
 	return &workflow, nil
-}
-
-// GetWorkflowVersions returns all versions of a workflow by group ID.
-func (r *WorkflowRepository) GetWorkflowVersions(ctx context.Context, workflowGroupID string) ([]*models.Workflow, error) {
-	query := `
-		SELECT
-			id
-		  , name
-		  , description
-		  , variables
-		  , status
-		  , metadata
-		  , owner
-		  , workflow_group_id
-		  , published_at
-		  , created_at
-		  , updated_at
-		  , deleted_at
-		FROM workflows
-		WHERE workflow_group_id = $1 AND deleted_at IS NULL
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, workflowGroupID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query workflow versions: %w", err)
-	}
-
-	defer func(ctx context.Context, r *WorkflowRepository) {
-		err := rows.Close()
-		if err != nil {
-			r.logger.ErrorContext(ctx, "failed to close rows", "error", err)
-		}
-	}(ctx, r)
-
-	var workflows []*models.Workflow
-
-	for rows.Next() {
-		workflow, err := r.scanWorkflowBase(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan workflow: %w", err)
-		}
-
-		err = r.loadWorkflowNodes(ctx, workflow)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load workflow nodes: %w", err)
-		}
-
-		workflows = append(workflows, workflow)
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return nil, fmt.Errorf("error iterating workflows: %w", err)
-	}
-
-	return workflows, nil
 }

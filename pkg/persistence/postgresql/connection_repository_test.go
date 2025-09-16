@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -384,7 +385,7 @@ func TestConnectionRepository_ErrorCases(t *testing.T) {
 
 	err = connRepo.SaveConnection(ctx, nonExistentWorkflowID, invalidConnection)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid source port ID format")
+	assert.True(t, persistence.IsInvalidPortFormat(err), "Should return invalid port format error")
 
 	// Test saving connection with invalid target port format
 	invalidConnection2 := &models.Connection{
@@ -395,5 +396,5 @@ func TestConnectionRepository_ErrorCases(t *testing.T) {
 
 	err = connRepo.SaveConnection(ctx, nonExistentWorkflowID, invalidConnection2)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid target port ID format")
+	assert.True(t, persistence.IsInvalidPortFormat(err), "Should return invalid port format error")
 }

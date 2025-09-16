@@ -15,13 +15,13 @@ type MockWorkflowRepository struct {
 	mock.Mock
 }
 
-func (m *MockWorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, error) {
-	args := m.Called(ctx)
+func (m *MockWorkflowRepository) ListWorkflows(ctx context.Context, opts persistence.ListWorkflowsOptions) (*persistence.WorkflowListResult, error) {
+	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 
-	return args.Get(0).([]*models.Workflow), args.Error(1)
+	return args.Get(0).(*persistence.WorkflowListResult), args.Error(1)
 }
 
 func (m *MockWorkflowRepository) Save(ctx context.Context, workflow *models.Workflow) error {
@@ -43,15 +43,6 @@ func (m *MockWorkflowRepository) Delete(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 
 	return args.Error(0)
-}
-
-func (m *MockWorkflowRepository) GetWorkflowVersions(ctx context.Context, workflowGroupID string) ([]*models.Workflow, error) {
-	args := m.Called(ctx, workflowGroupID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-
-	return args.Get(0).([]*models.Workflow), args.Error(1)
 }
 
 func (m *MockWorkflowRepository) GetCurrentWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) {

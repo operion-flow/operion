@@ -7,6 +7,32 @@ import (
 	"github.com/dukex/operion/pkg/models"
 )
 
+// ListWorkflowsOptions specifies filtering, sorting and pagination options for workflow listing.
+type ListWorkflowsOptions struct {
+	// Pagination
+	Limit  int // Max 100, default 20
+	Offset int // For offset-based pagination
+
+	// Filtering
+	OwnerID string                 // Optional owner filter
+	Status  *models.WorkflowStatus // Optional status filter
+
+	// Sorting
+	SortBy    string // created_at, updated_at, name
+	SortOrder string // asc, desc (default: desc)
+
+	// Data Loading Control
+	IncludeNodes       bool // Default: false
+	IncludeConnections bool // Default: false
+}
+
+// WorkflowListResult contains the result of a paginated workflow listing.
+type WorkflowListResult struct {
+	Workflows   []*models.Workflow `json:"workflows"`
+	TotalCount  int64              `json:"total_count"`
+	HasNextPage bool               `json:"has_next_page"`
+}
+
 type Persistence interface {
 	// Health check
 	HealthCheck(ctx context.Context) error
@@ -24,13 +50,12 @@ type Persistence interface {
 // WorkflowRepository provides workflow-related persistence operations.
 type WorkflowRepository interface {
 	// Basic CRUD operations
-	GetAll(ctx context.Context) ([]*models.Workflow, error)
+	ListWorkflows(ctx context.Context, opts ListWorkflowsOptions) (*WorkflowListResult, error)
 	Save(ctx context.Context, workflow *models.Workflow) error
 	GetByID(ctx context.Context, id string) (*models.Workflow, error)
 	Delete(ctx context.Context, id string) error
 
 	// Simplified versioning methods
-	GetWorkflowVersions(ctx context.Context, workflowGroupID string) ([]*models.Workflow, error)
 	GetCurrentWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) // draft or published
 	GetDraftWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error)   // draft only
 	GetPublishedWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -471,9 +472,11 @@ func TestRepositoryIntegration_MultipleWorkflowsExecution(t *testing.T) {
 	}
 
 	// Test querying across multiple workflows and executions
-	allWorkflows, err := p.WorkflowRepository().GetAll(ctx)
+	result, err := p.WorkflowRepository().ListWorkflows(ctx, persistence.ListWorkflowsOptions{
+		Limit: 100,
+	})
 	require.NoError(t, err)
-	assert.Len(t, allWorkflows, 3)
+	assert.Len(t, result.Workflows, 3)
 
 	// Query executions by status
 	runningExecs, err := p.ExecutionContextRepository().GetExecutionsByStatus(ctx, models.ExecutionStatusRunning)

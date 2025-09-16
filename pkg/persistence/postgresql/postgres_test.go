@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -329,10 +330,12 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	retrieved, err := p.WorkflowRepository().GetAll(ctx)
+	result, err := p.WorkflowRepository().ListWorkflows(ctx, persistence.ListWorkflowsOptions{
+		Limit: 100,
+	})
 	require.NoError(t, err)
 
-	assert.Len(t, retrieved, len(workflows))
+	assert.Len(t, result.Workflows, len(workflows))
 }
 
 func TestNewPersistence_DeleteWorkflow(t *testing.T) {

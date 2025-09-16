@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sort"
 )
 
 // MigrationManager handles database schema migrations.
@@ -98,39 +99,51 @@ func (m *MigrationManager) getCurrentSchemaVersion(ctx context.Context) (int, er
 	return version, nil
 }
 
-// applyMigrations applies all migrations from the current version to the latest.
+// applyMigrations applies all migrations from the current version to the latest in sorted order.
 func (m *MigrationManager) applyMigrations(ctx context.Context, fromVersion int) error {
-	for version, migration := range m.migrations {
+	// Get sorted list of versions to ensure migrations run in correct order
+	var versions []int
+
+	for version := range m.migrations {
 		if version > fromVersion {
-			m.logger.InfoContext(ctx, "Applying migration", "version", version)
-
-			transaction, err := m.db.BeginTx(ctx, nil)
-			if err != nil {
-				return fmt.Errorf("failed to begin transaction for migration %d: %w", version, err)
-			}
-
-			_, err = transaction.ExecContext(ctx, migration)
-			if err != nil {
-				_ = transaction.Rollback()
-
-				return fmt.Errorf("failed to execute migration %d: %w", version, err)
-			}
-
-			// Record migration
-			_, err = transaction.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version)
-			if err != nil {
-				_ = transaction.Rollback()
-
-				return fmt.Errorf("failed to record migration %d: %w", version, err)
-			}
-
-			err = transaction.Commit()
-			if err != nil {
-				return fmt.Errorf("failed to commit migration %d: %w", version, err)
-			}
-
-			m.logger.InfoContext(ctx, "Migration applied successfully", "version", version)
+			versions = append(versions, version)
 		}
+	}
+
+	// Sort versions in ascending order to ensure proper migration sequence
+	sort.Ints(versions)
+
+	// Apply migrations in sorted order
+	for _, version := range versions {
+		migration := m.migrations[version]
+		m.logger.InfoContext(ctx, "Applying migration", "version", version)
+
+		transaction, err := m.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for migration %d: %w", version, err)
+		}
+
+		_, err = transaction.ExecContext(ctx, migration)
+		if err != nil {
+			_ = transaction.Rollback()
+
+			return fmt.Errorf("failed to execute migration %d: %w", version, err)
+		}
+
+		// Record migration
+		_, err = transaction.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version)
+		if err != nil {
+			_ = transaction.Rollback()
+
+			return fmt.Errorf("failed to record migration %d: %w", version, err)
+		}
+
+		err = transaction.Commit()
+		if err != nil {
+			return fmt.Errorf("failed to commit migration %d: %w", version, err)
+		}
+
+		m.logger.InfoContext(ctx, "Migration applied successfully", "version", version)
 	}
 
 	return nil

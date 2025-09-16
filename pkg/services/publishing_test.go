@@ -1,4 +1,4 @@
-package workflow
+package services
 
 import (
 	"context"
@@ -17,13 +17,61 @@ type testWorkflowRepository struct {
 	workflows map[string]*models.Workflow
 }
 
-func (r *testWorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, error) {
-	workflows := make([]*models.Workflow, 0, len(r.workflows))
+func (r *testWorkflowRepository) ListWorkflows(ctx context.Context, opts persistence.ListWorkflowsOptions) (*persistence.WorkflowListResult, error) {
+	// Get all workflows from map
+	allWorkflows := make([]*models.Workflow, 0, len(r.workflows))
 	for _, w := range r.workflows {
-		workflows = append(workflows, w)
+		allWorkflows = append(allWorkflows, w)
 	}
 
-	return workflows, nil
+	// Apply filtering
+	filteredWorkflows := make([]*models.Workflow, 0)
+
+	for _, workflow := range allWorkflows {
+		// Owner filter
+		if opts.OwnerID != "" && workflow.Owner != opts.OwnerID {
+			continue
+		}
+
+		// Status filter
+		if opts.Status != nil && workflow.Status != *opts.Status {
+			continue
+		}
+
+		filteredWorkflows = append(filteredWorkflows, workflow)
+	}
+
+	// Apply simple pagination (for tests)
+	totalCount := int64(len(filteredWorkflows))
+
+	// Set defaults for tests
+	if opts.Limit <= 0 {
+		opts.Limit = 20
+	}
+
+	startIdx := opts.Offset
+	endIdx := opts.Offset + opts.Limit
+
+	if startIdx >= len(filteredWorkflows) {
+		return &persistence.WorkflowListResult{
+			Workflows:   make([]*models.Workflow, 0),
+			TotalCount:  totalCount,
+			HasNextPage: false,
+		}, nil
+	}
+
+	if endIdx > len(filteredWorkflows) {
+		endIdx = len(filteredWorkflows)
+	}
+
+	paginatedWorkflows := filteredWorkflows[startIdx:endIdx]
+	hasNextPage := endIdx < len(filteredWorkflows)
+
+	return &persistence.WorkflowListResult{
+		Workflows:   paginatedWorkflows,
+		TotalCount:  totalCount,
+		HasNextPage: hasNextPage,
+	}, nil
 }
 
 func (r *testWorkflowRepository) Save(ctx context.Context, workflow *models.Workflow) error {
@@ -44,18 +92,6 @@ func (r *testWorkflowRepository) Delete(ctx context.Context, id string) error {
 	delete(r.workflows, id)
 
 	return nil
-}
-
-func (r *testWorkflowRepository) GetWorkflowVersions(ctx context.Context, workflowGroupID string) ([]*models.Workflow, error) {
-	var versions []*models.Workflow
-
-	for _, w := range r.workflows {
-		if w.WorkflowGroupID == workflowGroupID {
-			versions = append(versions, w)
-		}
-	}
-
-	return versions, nil
 }
 
 func (r *testWorkflowRepository) GetCurrentWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) {
@@ -166,9 +202,9 @@ func createTestPersistence() *testPersistence {
 	}
 }
 
-func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
+func TestPublishing_PublishWorkflow_Success(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishing(persistence)
 
 	// Create a valid draft workflow
 	workflow := &models.Workflow{
@@ -200,9 +236,9 @@ func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 	assert.NotNil(t, published.PublishedAt)
 }
 
-func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
+func TestPublishing_PublishWorkflow_ValidationError(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishing(persistence)
 
 	// Create an invalid workflow (no trigger nodes)
 	workflow := &models.Workflow{
@@ -224,9 +260,9 @@ func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "must have at least one node")
 }
 
-func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
+func TestPublishing_GetPublishedWorkflow(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishing(persistence)
 
 	// Create and save a published workflow
 	workflow := &models.Workflow{
@@ -246,9 +282,9 @@ func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
 	assert.Equal(t, models.WorkflowStatusPublished, retrieved.Status)
 }
 
-func TestPublishingService_CreateDraftFromPublished(t *testing.T) {
+func TestPublishing_CreateDraftFromPublished(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishing(persistence)
 
 	// Create and save a published workflow
 	published := &models.Workflow{

@@ -287,14 +287,17 @@ func (spm *ProviderManager) updateTriggersWithSourceIDs(ctx context.Context, tri
 	spm.logger.Info("Updating triggers with source IDs", "mapping_count", len(triggerToSourceMap))
 
 	// Get all workflows to find and update triggers
-	workflows, err := spm.persistence.WorkflowRepository().GetAll(ctx)
+	result, err := spm.persistence.WorkflowRepository().ListWorkflows(ctx, persistence.ListWorkflowsOptions{
+		Limit:        1000, // Get all workflows for source ID management
+		IncludeNodes: true, // Need nodes for trigger processing
+	})
 	if err != nil {
 		return err
 	}
 
 	updated := 0
 
-	for _, workflow := range workflows {
+	for _, workflow := range result.Workflows {
 		workflowUpdated, nodeUpdates := spm.updateWorkflowTriggerNodes(workflow, triggerToSourceMap)
 		updated += nodeUpdates
 
@@ -369,7 +372,13 @@ func (spm *ProviderManager) executeProviderLifecycle(ctx context.Context, lifecy
 	}
 
 	// Step 2: Configure with current workflows
-	workflows, err := spm.persistence.WorkflowRepository().GetAll(ctx)
+	publishedStatus := models.WorkflowStatusPublished
+
+	result, err := spm.persistence.WorkflowRepository().ListWorkflows(ctx, persistence.ListWorkflowsOptions{
+		Status:       &publishedStatus, // Only get published workflows for source configuration
+		Limit:        1000,             // Get all published workflows
+		IncludeNodes: true,             // Need nodes for source configuration
+	})
 	if err != nil {
 		spm.logger.Error("Failed to get workflows for configuration",
 			"provider_id", providerID,
@@ -380,7 +389,7 @@ func (spm *ProviderManager) executeProviderLifecycle(ctx context.Context, lifecy
 	}
 
 	// Configure provider and get triggerID -> sourceID mapping
-	triggerToSourceMap, err := lifecycle.Configure(workflows)
+	triggerToSourceMap, err := lifecycle.Configure(result.Workflows)
 	if err != nil {
 		spm.logger.Error("Failed to configure provider",
 			"provider_id", providerID,

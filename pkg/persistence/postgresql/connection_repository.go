@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 )
 
 // ConnectionRepository handles connection-related database operations.
@@ -102,12 +103,12 @@ func (cr *ConnectionRepository) SaveConnection(ctx context.Context, workflowID s
 	// Parse port IDs to extract node IDs and port names
 	sourceNodeID, sourcePortName, sourceOK := models.ParsePortID(connection.SourcePort)
 	if !sourceOK {
-		return fmt.Errorf("invalid source port ID format: %s", connection.SourcePort)
+		return persistence.ErrInvalidPortFormat
 	}
 
 	targetNodeID, targetPortName, targetOK := models.ParsePortID(connection.TargetPort)
 	if !targetOK {
-		return fmt.Errorf("invalid target port ID format: %s", connection.TargetPort)
+		return persistence.ErrInvalidPortFormat
 	}
 
 	query := `
