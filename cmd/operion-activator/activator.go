@@ -216,10 +216,9 @@ func (a *Activator) publishNodeActivation(ctx context.Context, workflowID, trigg
 	}
 
 	if workflow == nil {
-		err := fmt.Errorf("workflow not found: %s", workflowID)
-		logger.ErrorContext(ctx, "Workflow not found", "error", err)
+		logger.ErrorContext(ctx, "Workflow not found", "workflowID", workflowID)
 
-		return err
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Copy variables from workflow, handle nil case

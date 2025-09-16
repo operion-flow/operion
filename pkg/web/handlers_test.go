@@ -1110,7 +1110,7 @@ func TestAPIHandlers_GetWorkflowNode(t *testing.T) {
 			name:           "workflow not found",
 			workflowID:     "nonexistent-workflow",
 			nodeID:         "some-node",
-			expectedStatus: http.StatusInternalServerError, // File persistence may return 500 for non-existent workflows
+			expectedStatus: http.StatusNotFound, // Now properly returns 404 for non-existent workflows
 			validateResult: func(t *testing.T, body []byte) {
 				t.Helper()
 				// Check if the body contains error information
