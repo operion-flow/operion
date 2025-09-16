@@ -81,7 +81,7 @@ func (nr *nodeRepository) GetNodesByWorkflow(ctx context.Context, workflowID str
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, persistence.ErrWorkflowNotFound
 	}
 
 	return workflow.Nodes, nil
@@ -94,7 +94,7 @@ func (nr *nodeRepository) GetNodeByWorkflow(ctx context.Context, workflowID, nod
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, persistence.ErrWorkflowNotFound
 	}
 
 	// Find the specific node
@@ -114,7 +114,7 @@ func (nr *nodeRepository) SaveNode(ctx context.Context, workflowID string, node 
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Check if node already exists
@@ -144,7 +144,7 @@ func (nr *nodeRepository) DeleteNode(ctx context.Context, workflowID, nodeID str
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Find and remove the node
@@ -166,7 +166,7 @@ func (nr *nodeRepository) DeleteNodeWithConnections(ctx context.Context, workflo
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.NewWorkflowError("DeleteNodeWithConnections", workflowID, persistence.ErrWorkflowNotFound)
 	}
 
 	nodeFound := false
@@ -246,7 +246,7 @@ func (cr *connectionRepository) GetConnectionsBySourceNode(ctx context.Context, 
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, persistence.ErrWorkflowNotFound
 	}
 
 	var connections []*models.Connection
@@ -268,7 +268,7 @@ func (cr *connectionRepository) GetConnectionsByTargetNode(ctx context.Context, 
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, persistence.ErrWorkflowNotFound
 	}
 
 	var connections []*models.Connection
@@ -290,7 +290,7 @@ func (cr *connectionRepository) SaveConnection(ctx context.Context, workflowID s
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Check if connection already exists
@@ -320,7 +320,7 @@ func (cr *connectionRepository) DeleteConnection(ctx context.Context, workflowID
 	}
 
 	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+		return persistence.ErrWorkflowNotFound
 	}
 
 	// Find and remove the connection
@@ -332,7 +332,7 @@ func (cr *connectionRepository) DeleteConnection(ctx context.Context, workflowID
 		}
 	}
 
-	return fmt.Errorf("connection not found: %s in workflow %s", connectionID, workflowID)
+	return persistence.ErrConnectionNotFound
 }
 
 func (cr *connectionRepository) GetConnectionsByWorkflow(ctx context.Context, workflowID string) ([]*models.Connection, error) {
@@ -342,7 +342,7 @@ func (cr *connectionRepository) GetConnectionsByWorkflow(ctx context.Context, wo
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, persistence.ErrWorkflowNotFound
 	}
 
 	return workflow.Connections, nil
