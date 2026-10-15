@@ -13,12 +13,18 @@ import (
 // PublishingService handles workflow publishing operations with simplified versioning.
 type PublishingService struct {
 	persistence persistence.Persistence
+	validator   Validator
+}
+
+type Validator interface {
+	Validate(ctx context.Context, workflow *models.Workflow) error
 }
 
 // NewPublishingService creates a new workflow publishing service.
-func NewPublishingService(persistence persistence.Persistence) *PublishingService {
+func NewPublishingService(persistence persistence.Persistence, validator Validator) *PublishingService {
 	return &PublishingService{
 		persistence: persistence,
+		validator:   validator,
 	}
 }
 
@@ -35,6 +41,10 @@ func (s *PublishingService) PublishWorkflow(ctx context.Context, workflowID stri
 	}
 
 	if err := s.validateForPublishing(workflow); err != nil {
+		return nil, fmt.Errorf("workflow validation failed: %w", err)
+	}
+
+	if err := s.validator.Validate(ctx, workflow); err != nil {
 		return nil, fmt.Errorf("workflow validation failed: %w", err)
 	}
 

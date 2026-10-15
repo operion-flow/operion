@@ -55,7 +55,10 @@ func node(id, nodeType string, config map[string]any) *models.WorkflowNode {
 }
 
 func trigger() *models.WorkflowNode {
-	return node("trigger", "trigger:webhook", map[string]any{"webhook_path": "/hook"})
+	n := node("trigger", "trigger:webhook", map[string]any{"webhook_path": "/hook"})
+	n.Category = models.CategoryTypeTrigger
+
+	return n
 }
 
 func logNode(id string) *models.WorkflowNode {

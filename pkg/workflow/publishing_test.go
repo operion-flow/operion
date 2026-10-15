@@ -2,11 +2,14 @@ package workflow
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence"
+	"github.com/dukex/operion/pkg/registry"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,9 +169,16 @@ func createTestPersistence() *testPersistence {
 	}
 }
 
+func newTestValidator() *engine.Engine {
+	reg := registry.NewRegistry(slog.New(slog.DiscardHandler))
+	reg.RegisterDefaultNodes()
+
+	return engine.New(reg)
+}
+
 func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishingService(persistence, newTestValidator())
 
 	// Create a valid draft workflow
 	workflow := &models.Workflow{
@@ -180,7 +190,9 @@ func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 		Nodes: []*models.WorkflowNode{
 			{
 				ID:       "trigger-1",
+				Type:     "trigger:webhook",
 				Category: models.CategoryTypeTrigger,
+				Config:   map[string]any{"webhook_path": "/hook"},
 				Enabled:  true,
 			},
 		},
@@ -202,7 +214,7 @@ func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 
 func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishingService(persistence, newTestValidator())
 
 	// Create an invalid workflow (no trigger nodes)
 	workflow := &models.Workflow{
@@ -224,9 +236,48 @@ func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "must have at least one node")
 }
 
+func TestPublishingService_PublishWorkflow_RejectsBrokenGraph(t *testing.T) {
+	persistence := createTestPersistence()
+	service := NewPublishingService(persistence, newTestValidator())
+
+	workflow := &models.Workflow{
+		ID:              "broken-workflow",
+		Name:            "Broken Workflow",
+		Description:     "Test description",
+		Status:          models.WorkflowStatusDraft,
+		WorkflowGroupID: "test-group",
+		Nodes: []*models.WorkflowNode{
+			{
+				ID:       "trigger-1",
+				Type:     "trigger:webhook",
+				Category: models.CategoryTypeTrigger,
+				Config:   map[string]any{"webhook_path": "/hook"},
+				Enabled:  true,
+			},
+			{
+				ID:      "log-1",
+				Type:    "log",
+				Config:  map[string]any{"message": "done"},
+				Enabled: true,
+			},
+		},
+		Connections: []*models.Connection{
+			{ID: "conn-1", SourcePort: "trigger-1:output", TargetPort: "log-1:main"},
+		},
+	}
+
+	err := persistence.workflowRepo.Save(context.Background(), workflow)
+	require.NoError(t, err)
+
+	_, err = service.PublishWorkflow(context.Background(), "broken-workflow")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `output port "trigger-1:output" does not exist`)
+	assert.Equal(t, models.WorkflowStatusDraft, persistence.workflowRepo.workflows["broken-workflow"].Status)
+}
+
 func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishingService(persistence, newTestValidator())
 
 	// Create and save a published workflow
 	workflow := &models.Workflow{
@@ -248,7 +299,7 @@ func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
 
 func TestPublishingService_CreateDraftFromPublished(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence)
+	service := NewPublishingService(persistence, newTestValidator())
 
 	// Create and save a published workflow
 	published := &models.Workflow{
