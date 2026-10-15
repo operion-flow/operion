@@ -27,6 +27,8 @@ linters:
     - wrapcheck
     # END TEMPORARY DISABLE
     - wsl
+    - exhaustruct
+    - exhaustruct_v5
   enable:
     - wsl_v5
 
@@ -37,11 +39,6 @@ linters:
           list-mode: lax
           allow:
             - github.com/dukex/operion/pkg/protocol
-    exhaustruct:
-      include:
-        - '.+\.Test'
-      exclude:
-        - '.+/cli\.Command$'
     funlen:
       lines: 120
     ireturn:

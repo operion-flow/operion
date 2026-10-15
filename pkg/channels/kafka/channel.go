@@ -52,7 +52,7 @@ func CreateChannel(logger watermill.LoggerAdapter, serviceName string) (*kafka.P
 			Unmarshaler:           kafka.NewWithPartitioningMarshaler(MetadataKey),
 			OverwriteSaramaConfig: saramaSubscriberConfig,
 			ConsumerGroup:         "cg-" + serviceName,
-			OTELEnabled:           true,
+			Tracer:                kafka.NewOTELSaramaTracer(),
 		},
 		logger,
 	)
@@ -68,7 +68,7 @@ func CreateChannel(logger watermill.LoggerAdapter, serviceName string) (*kafka.P
 			Brokers:               brokers,
 			Marshaler:             kafka.NewWithPartitioningMarshaler(MetadataKey),
 			OverwriteSaramaConfig: saramaPublisherConfig,
-			OTELEnabled:           true,
+			Tracer:                kafka.NewOTELSaramaTracer(),
 		},
 		logger,
 	)
