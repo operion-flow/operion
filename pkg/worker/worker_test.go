@@ -62,11 +62,12 @@ func (f fakeWorkflows) GetByID(_ context.Context, id string) (*models.Workflow, 
 
 func greetWorkflow() *models.Workflow {
 	return &models.Workflow{
-		ID:   "wf",
-		Name: "greet",
+		ID:        "wf",
+		Name:      "greet",
+		Variables: map[string]any{"team": "Vendas"},
 		Nodes: []*models.WorkflowNode{
 			{ID: "trigger", Type: "trigger:webhook", Category: models.CategoryTypeTrigger, Config: map[string]any{"webhook_path": "/hook"}},
-			{ID: "greet", Type: "log", Config: map[string]any{"message": "hello {{.node_results.trigger.body.name}}"}},
+			{ID: "greet", Type: "log", Config: map[string]any{"message": "hello {{.node_results.trigger.body.name}} from {{.variables.team}}"}},
 		},
 		Connections: []*models.Connection{{ID: "c1", SourcePort: "trigger:success", TargetPort: "greet:main"}},
 	}
@@ -114,7 +115,7 @@ func TestRunProcessesJobsUntilCancelled(t *testing.T) {
 
 	for _, execution := range jobs.done {
 		assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
-		assert.Equal(t, "hello Ana", execution.NodeResults["greet"].Data["message"])
+		assert.Equal(t, "hello Ana from Vendas", execution.NodeResults["greet"].Data["message"])
 	}
 }
 
