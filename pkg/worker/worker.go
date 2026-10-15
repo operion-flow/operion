@@ -1,0 +1,95 @@
+package worker
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/dukex/operion/pkg/engine"
+	"github.com/dukex/operion/pkg/models"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+)
+
+type Jobs interface {
+	ProcessNext(
+		ctx context.Context,
+		process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) error,
+	) (bool, error)
+}
+
+type Workflows interface {
+	GetByID(ctx context.Context, id string) (*models.Workflow, error)
+}
+
+type Worker struct {
+	jobs      Jobs
+	workflows Workflows
+	engine    *engine.Engine
+	logger    *slog.Logger
+	idle      time.Duration
+}
+
+func New(jobs Jobs, workflows Workflows, e *engine.Engine, logger *slog.Logger, idle time.Duration) *Worker {
+	return &Worker{jobs: jobs, workflows: workflows, engine: e, logger: logger, idle: idle}
+}
+
+func (w *Worker) Run(ctx context.Context) error {
+	for {
+		processed, err := w.jobs.ProcessNext(ctx, w.process)
+		if err != nil {
+			w.logger.ErrorContext(ctx, "failed to process job", "error", err)
+		}
+
+		if processed && err == nil {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(w.idle):
+		}
+	}
+}
+
+func (w *Worker) process(ctx context.Context, job models.Job, execution *models.ExecutionContext) error {
+	ctx, span := otel.Tracer("operion/worker").Start(ctx, "worker.process", trace.WithAttributes(
+		attribute.String("execution_id", execution.ID),
+		attribute.String("workflow_id", execution.WorkflowID),
+		attribute.String("node_id", job.NodeID),
+	))
+	defer span.End()
+
+	workflow, err := w.workflows.GetByID(ctx, execution.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow %s: %w", execution.WorkflowID, err)
+	}
+
+	if workflow == nil {
+		now := time.Now().UTC()
+		execution.Status = models.ExecutionStatusFailed
+		execution.ErrorMessage = fmt.Sprintf("workflow %q not found", execution.WorkflowID)
+		execution.CompletedAt = &now
+	} else {
+		execution.Variables = workflow.Variables
+
+		err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data})
+		if err != nil {
+			return err
+		}
+	}
+
+	span.SetAttributes(attribute.String("status", string(execution.Status)))
+	w.logger.InfoContext(ctx, "job processed",
+		"execution_id", execution.ID,
+		"workflow_id", execution.WorkflowID,
+		"node_id", job.NodeID,
+		"status", execution.Status,
+		"error", execution.ErrorMessage,
+	)
+
+	return nil
+}

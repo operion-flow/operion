@@ -20,6 +20,6 @@ func newCommand() *cli.Command {
 	return &cli.Command{
 		Name:     "operion",
 		Usage:    "Workflow automation engine",
-		Commands: []*cli.Command{newRunCommand()},
+		Commands: []*cli.Command{newRunCommand(), newServeCommand()},
 	}
 }

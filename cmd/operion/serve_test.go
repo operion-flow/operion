@@ -1,0 +1,14 @@
+package main
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestServeFailsWhenDatabaseIsUnreachable(t *testing.T) {
+	err := serve(t.Context(), "postgres://operion@127.0.0.1:1/operion?sslmode=disable&connect_timeout=1", 0, time.Millisecond, "error")
+
+	require.Error(t, err)
+}
