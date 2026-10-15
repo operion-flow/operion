@@ -13,6 +13,7 @@ import (
 	"github.com/dukex/operion/pkg/log"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/scheduler"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/healthcheck"
@@ -22,11 +23,11 @@ import (
 func newServeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "serve",
-		Usage: "Receive webhooks and run executions from the jobs table in one process",
+		Usage: "Receive webhooks, fire schedules and run executions from the jobs table in one process",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
-			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the worker waits when no job is due", Value: time.Second},
+			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the worker and the scheduler wait when nothing is due", Value: time.Second},
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
@@ -69,12 +70,21 @@ func serve(ctx context.Context, databaseURL string, port int, pollInterval time.
 		close(workerDone)
 	}()
 
+	schedulerDone := make(chan struct{})
+
+	go func() {
+		_ = scheduler.New(store.Schedules(), logger, pollInterval).Run(ctx)
+
+		close(schedulerDone)
+	}()
+
 	logger.InfoContext(ctx, "operion serving", "port", port)
 
 	err = app.Listen(":"+strconv.Itoa(port), fiber.ListenConfig{GracefulContext: ctx, DisableStartupMessage: true})
 
 	stop()
 	<-workerDone
+	<-schedulerDone
 
 	return err
 }
