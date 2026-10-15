@@ -1,0 +1,243 @@
+package engine_test
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"testing"
+
+	"github.com/dukex/operion/pkg/engine"
+	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/protocol"
+	"github.com/dukex/operion/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	errorPort   = "error"
+	failingType = "failing"
+)
+
+type stubNode struct {
+	protocol.Node
+
+	outputs map[string]models.NodeResult
+	err     error
+}
+
+func (s stubNode) Execute(models.ExecutionContext, map[string]models.NodeResult) (map[string]models.NodeResult, error) {
+	return s.outputs, s.err
+}
+
+type creator struct {
+	registry *registry.Registry
+	stubs    map[string]stubNode
+}
+
+func (c creator) CreateNode(ctx context.Context, nodeType, nodeID string, config map[string]any) (protocol.Node, error) {
+	if stub, ok := c.stubs[nodeType]; ok {
+		return stub, nil
+	}
+
+	return c.registry.CreateNode(ctx, nodeType, nodeID, config)
+}
+
+func newEngine(stubs map[string]stubNode) *engine.Engine {
+	reg := registry.NewRegistry(slog.New(slog.DiscardHandler))
+	reg.RegisterDefaultNodes()
+
+	return engine.New(creator{registry: reg, stubs: stubs})
+}
+
+func node(id, nodeType string, config map[string]any) *models.WorkflowNode {
+	return &models.WorkflowNode{ID: id, Name: id, Type: nodeType, Config: config, Enabled: true}
+}
+
+func trigger() *models.WorkflowNode {
+	return node("trigger", "trigger:webhook", map[string]any{"webhook_path": "/hook"})
+}
+
+func logNode(id string) *models.WorkflowNode {
+	return node(id, "log", map[string]any{"message": id})
+}
+
+func connect(source, target string) *models.Connection {
+	return &models.Connection{ID: source + "->" + target, SourcePort: source, TargetPort: target}
+}
+
+func workflow(nodes []*models.WorkflowNode, connections ...*models.Connection) *models.Workflow {
+	return &models.Workflow{ID: "wf", Name: "workflow", Nodes: nodes, Connections: connections}
+}
+
+func run(t *testing.T, e *engine.Engine, wf *models.Workflow, body map[string]any) *models.ExecutionContext {
+	t.Helper()
+
+	data := map[string]any{"body": body}
+	execution := &models.ExecutionContext{ID: "exec", WorkflowID: wf.ID, Status: models.ExecutionStatusRunning, TriggerData: data}
+
+	require.NoError(t, e.Run(t.Context(), wf, execution, engine.TriggerActivation("trigger", data)))
+
+	return execution
+}
+
+func TestRunCompletesLinearFlow(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{
+			trigger(),
+			node("greet", "transform", map[string]any{"expression": "hello {{.node_results.trigger.body.name}}"}),
+			logNode("done"),
+		},
+		connect("trigger:success", "greet:main"),
+		connect("greet:success", "done:main"),
+	)
+
+	execution := run(t, newEngine(nil), wf, map[string]any{"name": "Ana"})
+
+	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
+	assert.Empty(t, execution.ErrorMessage)
+	assert.NotNil(t, execution.CompletedAt)
+	assert.Equal(t, "hello Ana", execution.NodeResults["greet"].Data["result"])
+	assert.Equal(t, "greet", execution.NodeResults["greet"].NodeID)
+	assert.Contains(t, execution.NodeResults, "done")
+}
+
+func TestRunCompletesWhenTakenBranchHasNoConnection(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{
+			trigger(),
+			node("check", "conditional", map[string]any{"condition": "{{.node_results.trigger.body.active}}"}),
+			logNode("active"),
+		},
+		connect("trigger:success", "check:main"),
+		connect("check:true", "active:main"),
+	)
+
+	execution := run(t, newEngine(nil), wf, map[string]any{"active": false})
+
+	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
+	assert.Equal(t, false, execution.NodeResults["check"].Data["condition_result"])
+	assert.NotContains(t, execution.NodeResults, "active")
+}
+
+func TestRunExecutesEveryParallelBranch(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), logNode("left"), logNode("right")},
+		connect("trigger:success", "left:main"),
+		connect("trigger:success", "right:main"),
+	)
+
+	execution := run(t, newEngine(nil), wf, nil)
+
+	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
+	assert.Contains(t, execution.NodeResults, "left")
+	assert.Contains(t, execution.NodeResults, "right")
+}
+
+func TestRunFollowsConnectedErrorPort(t *testing.T) {
+	stubs := map[string]stubNode{
+		failingType: {outputs: map[string]models.NodeResult{errorPort: {Data: map[string]any{"error": "boom"}}}},
+	}
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("step", failingType, nil), logNode("recover")},
+		connect("trigger:success", "step:main"),
+		connect("step:error", "recover:main"),
+	)
+
+	execution := run(t, newEngine(stubs), wf, nil)
+
+	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
+	assert.Contains(t, execution.NodeResults, "step")
+	assert.Contains(t, execution.NodeResults, "recover")
+}
+
+func TestRunFailsOnUnhandledErrorPort(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  models.NodeResult
+		message string
+	}{
+		{name: "error field", result: models.NodeResult{Error: "kaboom"}, message: `node "step": kaboom`},
+		{name: "error in data", result: models.NodeResult{Data: map[string]any{"error": "boom"}}, message: `node "step": boom`},
+		{name: "no message", result: models.NodeResult{}, message: `node "step": failed without an error message`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stubs := map[string]stubNode{failingType: {outputs: map[string]models.NodeResult{errorPort: tt.result}}}
+			wf := workflow(
+				[]*models.WorkflowNode{trigger(), node("step", failingType, nil), logNode("after")},
+				connect("trigger:success", "step:main"),
+				connect("step:success", "after:main"),
+			)
+
+			execution := run(t, newEngine(stubs), wf, nil)
+
+			assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+			assert.Equal(t, tt.message, execution.ErrorMessage)
+			assert.NotNil(t, execution.CompletedAt)
+		})
+	}
+}
+
+func TestRunFailsWhenNodeReturnsError(t *testing.T) {
+	stubs := map[string]stubNode{failingType: {err: errors.New("exploded")}}
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("step", failingType, nil)},
+		connect("trigger:success", "step:main"),
+	)
+
+	execution := run(t, newEngine(stubs), wf, nil)
+
+	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+	assert.Equal(t, `node "step": exploded`, execution.ErrorMessage)
+}
+
+func TestRunFailsOnUnknownNodeType(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("step", "missing", nil)},
+		connect("trigger:success", "step:main"),
+	)
+
+	execution := run(t, newEngine(nil), wf, nil)
+
+	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+	assert.Contains(t, execution.ErrorMessage, `node "step"`)
+	assert.Contains(t, execution.ErrorMessage, registry.ErrNodeNotRegistered.Error())
+}
+
+func TestRunFailsOnConnectionToMissingNode(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		message string
+	}{
+		{name: "unknown node", target: "ghost:main", message: `node "ghost" not found in workflow`},
+		{name: "malformed port", target: "ghost", message: `node "" not found in workflow`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wf := workflow([]*models.WorkflowNode{trigger()}, connect("trigger:success", tt.target))
+
+			execution := run(t, newEngine(nil), wf, nil)
+
+			assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+			assert.Equal(t, tt.message, execution.ErrorMessage)
+		})
+	}
+}
+
+func TestRunStopsWhenContextIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	wf := workflow([]*models.WorkflowNode{trigger()})
+	execution := &models.ExecutionContext{ID: "exec", Status: models.ExecutionStatusRunning}
+
+	err := newEngine(nil).Run(ctx, wf, execution, engine.TriggerActivation("trigger", nil))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, models.ExecutionStatusRunning, execution.Status)
+	assert.Nil(t, execution.CompletedAt)
+}
