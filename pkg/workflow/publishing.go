@@ -37,15 +37,15 @@ func (s *PublishingService) PublishWorkflow(ctx context.Context, workflowID stri
 	}
 
 	if workflow == nil {
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
+		return nil, fmt.Errorf("%w: %s", ErrWorkflowNotFound, workflowID)
 	}
 
 	if err := s.validateForPublishing(workflow); err != nil {
-		return nil, fmt.Errorf("workflow validation failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidWorkflow, err)
 	}
 
 	if err := s.validator.Validate(ctx, workflow); err != nil {
-		return nil, fmt.Errorf("workflow validation failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidWorkflow, err)
 	}
 
 	// Use repository's PublishWorkflow method to handle status changes

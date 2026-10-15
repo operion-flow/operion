@@ -8,12 +8,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dukex/operion/pkg/api"
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/ingest"
 	"github.com/dukex/operion/pkg/log"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
+	"github.com/dukex/operion/pkg/workflow"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/healthcheck"
 	cli "github.com/urfave/cli/v3"
@@ -22,7 +24,7 @@ import (
 func newServeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "serve",
-		Usage: "Receive webhooks and run executions from the jobs table in one process",
+		Usage: "Serve the workflow API and webhooks, and run executions from the jobs table in one process",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
@@ -53,13 +55,15 @@ func serve(ctx context.Context, databaseURL string, port int, pollInterval time.
 	reg := registry.NewRegistry(logger)
 	reg.RegisterDefaultNodes()
 
+	e := engine.New(reg)
 	jobs := store.Jobs()
-	w := worker.New(jobs, store.WorkflowRepository(), engine.New(reg), logger, pollInterval)
+	w := worker.New(jobs, store.WorkflowRepository(), e, logger, pollInterval)
 
 	app := fiber.New()
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
 	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
 	ingest.NewWebhook(store, jobs, logger).Register(app)
+	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository()).Register(app)
 
 	workerDone := make(chan struct{})
 

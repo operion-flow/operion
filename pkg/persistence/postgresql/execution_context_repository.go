@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 )
 
 // ExecutionContextRepository handles execution context-related database operations.
@@ -95,7 +96,7 @@ func (ecr *ExecutionContextRepository) GetExecutionContext(ctx context.Context, 
 	execCtx, err := ecr.scanExecutionContext(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("execution context not found: %s", executionID)
+			return nil, fmt.Errorf("%w: %s", persistence.ErrExecutionNotFound, executionID)
 		}
 
 		return nil, fmt.Errorf("failed to scan execution context: %w", err)
