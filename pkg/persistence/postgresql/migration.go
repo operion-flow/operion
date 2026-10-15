@@ -102,5 +102,19 @@ func migrations() map[int]string {
 			CREATE INDEX idx_input_coordination_execution ON input_coordination_states(execution_id);
 			CREATE INDEX idx_input_coordination_created_at ON input_coordination_states(created_at);
 		`,
+		2: `
+			CREATE TABLE jobs (
+				id UUID PRIMARY KEY,
+				execution_id VARCHAR(255) NOT NULL REFERENCES execution_contexts(id) ON DELETE CASCADE,
+				node_id VARCHAR(255) NOT NULL,
+				port VARCHAR(255) NOT NULL,
+				data JSONB NOT NULL DEFAULT '{}',
+				run_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+				created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+			);
+
+			CREATE INDEX idx_jobs_run_at ON jobs(run_at);
+			CREATE INDEX idx_jobs_execution_id ON jobs(execution_id);
+		`,
 	}
 }

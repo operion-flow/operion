@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 )
 
 // MigrationManager handles database schema migrations.
@@ -100,7 +102,8 @@ func (m *MigrationManager) getCurrentSchemaVersion(ctx context.Context) (int, er
 
 // applyMigrations applies all migrations from the current version to the latest.
 func (m *MigrationManager) applyMigrations(ctx context.Context, fromVersion int) error {
-	for version, migration := range m.migrations {
+	for _, version := range slices.Sorted(maps.Keys(m.migrations)) {
+		migration := m.migrations[version]
 		if version > fromVersion {
 			m.logger.InfoContext(ctx, "Applying migration", "version", version)
 

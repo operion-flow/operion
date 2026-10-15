@@ -26,7 +26,7 @@ func dropDb(ctx context.Context, t *testing.T, databaseURL string) {
 	require.NoError(t, err)
 
 	// Drop tables in reverse dependency order (children first, parents last)
-	for _, table := range []string{"input_coordination_states", "execution_contexts", "workflow_connections", "workflow_nodes", "workflows", "schema_migrations"} {
+	for _, table := range []string{"jobs", "input_coordination_states", "execution_contexts", "workflow_connections", "workflow_nodes", "workflows", "schema_migrations"} {
 		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table+" CASCADE")
 		require.NoError(t, err)
 	}
@@ -40,21 +40,24 @@ func setupTestDB(t *testing.T) (*postgresql.Persistence, context.Context, string
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 
-	if postgresContainer == nil || !postgresContainer.IsRunning() {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
 		var err error
 
-		postgresContainer, err = postgres.Run(ctx,
-			"postgres:16-alpine",
-			postgres.WithDatabase("operion_test"),
-			postgres.WithUsername("operion"),
-			postgres.WithPassword("operion"),
-			postgres.BasicWaitStrategies(),
-		)
+		if postgresContainer == nil || !postgresContainer.IsRunning() {
+			postgresContainer, err = postgres.Run(ctx,
+				"postgres:16-alpine",
+				postgres.WithDatabase("operion_test"),
+				postgres.WithUsername("operion"),
+				postgres.WithPassword("operion"),
+				postgres.BasicWaitStrategies(),
+			)
+			require.NoError(t, err)
+		}
+
+		databaseURL, err = postgresContainer.ConnectionString(ctx, "sslmode=disable")
 		require.NoError(t, err)
 	}
-
-	databaseURL, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
 
 	dropDb(ctx, t, databaseURL)
 
