@@ -13,6 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	triggerNodeID   = "trigger"
+	greetNodeID     = "greet"
+	webhookNodeType = "trigger:webhook"
+	logNodeType     = "log"
+	messageKey      = "message"
+)
+
 func startJob(ctx context.Context, t *testing.T, p *postgresql.Persistence, runAt time.Time) (models.Job, *models.ExecutionContext) {
 	t.Helper()
 
@@ -37,7 +45,7 @@ func startJob(ctx context.Context, t *testing.T, p *postgresql.Persistence, runA
 	job := models.Job{
 		ID:          uuid.NewString(),
 		ExecutionID: execution.ID,
-		NodeID:      "trigger",
+		NodeID:      triggerNodeID,
 		Port:        "external",
 		Data:        data,
 		RunAt:       runAt,
@@ -54,7 +62,7 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 
 	processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, job models.Job, loaded *models.ExecutionContext) error {
 		assert.Equal(t, started.ID, job.ID)
-		assert.Equal(t, "trigger", job.NodeID)
+		assert.Equal(t, triggerNodeID, job.NodeID)
 		assert.Equal(t, "external", job.Port)
 		assert.Equal(t, "Ana", job.Data["body"].(map[string]any)["employee"])
 		assert.Equal(t, execution.ID, loaded.ID)
@@ -62,7 +70,7 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 
 		now := time.Now().UTC()
 		loaded.Status = models.ExecutionStatusCompleted
-		loaded.NodeResults["greet"] = models.NodeResult{NodeID: "greet", Data: map[string]any{"text": "hi"}}
+		loaded.NodeResults[greetNodeID] = models.NodeResult{NodeID: greetNodeID, Data: map[string]any{"text": "hi"}}
 		loaded.CompletedAt = &now
 
 		return nil
@@ -74,7 +82,7 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 	saved, err := p.ExecutionContextRepository().GetExecutionContext(ctx, execution.ID)
 	require.NoError(t, err)
 	assert.Equal(t, models.ExecutionStatusCompleted, saved.Status)
-	assert.Equal(t, "hi", saved.NodeResults["greet"].Data["text"])
+	assert.Equal(t, "hi", saved.NodeResults[greetNodeID].Data["text"])
 	assert.NotNil(t, saved.CompletedAt)
 
 	processed, err = p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) error {

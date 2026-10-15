@@ -73,8 +73,13 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 		execution.Status = models.ExecutionStatusFailed
 		execution.ErrorMessage = fmt.Sprintf("workflow %q not found", execution.WorkflowID)
 		execution.CompletedAt = &now
-	} else if err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data}); err != nil {
-		return err
+	} else {
+		execution.Variables = workflow.Variables
+
+		err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data})
+		if err != nil {
+			return err
+		}
 	}
 
 	span.SetAttributes(attribute.String("status", string(execution.Status)))

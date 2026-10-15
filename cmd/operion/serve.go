@@ -1,0 +1,80 @@
+package main
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/dukex/operion/pkg/engine"
+	"github.com/dukex/operion/pkg/ingest"
+	"github.com/dukex/operion/pkg/log"
+	"github.com/dukex/operion/pkg/persistence/postgresql"
+	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/worker"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/healthcheck"
+	cli "github.com/urfave/cli/v3"
+)
+
+func newServeCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "serve",
+		Usage: "Receive webhooks and run executions from the jobs table in one process",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
+			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
+			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the worker waits when no job is due", Value: time.Second},
+			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
+		},
+		Action: func(ctx context.Context, command *cli.Command) error {
+			return serve(ctx, command.String("database-url"), command.Int("port"), command.Duration("poll-interval"), command.String("log-level"))
+		},
+	}
+}
+
+func serve(ctx context.Context, databaseURL string, port int, pollInterval time.Duration, logLevel string) error {
+	log.Setup(logLevel)
+
+	logger := log.WithModule("operion")
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	store, err := postgresql.NewPersistence(ctx, logger, databaseURL)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = store.Close(context.WithoutCancel(ctx)) }()
+
+	reg := registry.NewRegistry(logger)
+	reg.RegisterDefaultNodes()
+
+	jobs := store.Jobs()
+	w := worker.New(jobs, store.WorkflowRepository(), engine.New(reg), logger, pollInterval)
+
+	app := fiber.New()
+	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
+	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
+	ingest.NewWebhook(store, jobs, logger).Register(app)
+
+	workerDone := make(chan struct{})
+
+	go func() {
+		_ = w.Run(ctx)
+
+		close(workerDone)
+	}()
+
+	logger.InfoContext(ctx, "operion serving", "port", port)
+
+	err = app.Listen(":"+strconv.Itoa(port), fiber.ListenConfig{GracefulContext: ctx, DisableStartupMessage: true})
+
+	stop()
+	<-workerDone
+
+	return err
+}
