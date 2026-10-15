@@ -1,5 +1,8 @@
 GOFLAGS ?= -ldflags="-s -w"
 
+./bin/operion:
+	go build $(GOFLAGS) -o ./bin/operion ./cmd/operion
+
 ./bin/operion-worker:
 	go build $(GOFLAGS) -o ./bin/operion-worker ./cmd/operion-worker
 
@@ -16,7 +19,7 @@ GOFLAGS ?= -ldflags="-s -w"
 
 .PHONY: build build-linux clean test test-integration test-all-with-integration test-coverage fmt lint docs mod-check
 
-build: ./bin/operion-worker ./bin/operion-api ./bin/operion-activator ./bin/operion-source-manager
+build: ./bin/operion ./bin/operion-worker ./bin/operion-api ./bin/operion-activator ./bin/operion-source-manager
 
 clean:
 	rm -rf ./bin
