@@ -53,7 +53,7 @@ func serve(ctx context.Context, databaseURL string, port int, pollInterval time.
 
 	defer func() { _ = store.Close(context.WithoutCancel(ctx)) }()
 
-	reg := registry.NewRegistry(logger)
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	e := engine.New(reg)
