@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -68,13 +70,13 @@ func (f *fakeStore) ProcessDue(ctx context.Context, fire func(context.Context, m
 	return true, nil
 }
 
-func run(t *testing.T, store *fakeStore, now time.Time) error {
+func run(t *testing.T, store *fakeStore, now time.Time, logs io.Writer) error {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	store.onEmpty = cancel
 
-	s := New(store, slog.New(slog.DiscardHandler), time.Millisecond)
+	s := New(store, slog.New(slog.NewTextHandler(logs, nil)), time.Millisecond)
 	s.now = func() time.Time { return now }
 
 	return s.Run(ctx)
@@ -98,7 +100,7 @@ func TestRunSyncsAndFiresDueSchedules(t *testing.T) {
 		due:    []models.Schedule{weekdayMorning(scheduled)},
 	}
 
-	err := run(t, store, now)
+	err := run(t, store, now, io.Discard)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []time.Time{scheduled.Add(24 * time.Hour)}, store.firstRuns)
@@ -130,13 +132,31 @@ func TestRunKeepsGoingAfterErrors(t *testing.T) {
 		due:     []models.Schedule{badTimezone, weekdayMorning(now)},
 	}
 
-	err := run(t, store, now)
+	var logs bytes.Buffer
+
+	err := run(t, store, now, &logs)
 
 	require.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, logs.String(), "failed to sync schedules")
+	assert.Contains(t, logs.String(), "failed to fire schedule")
 	require.NotEmpty(t, store.firstErrs)
 	assert.ErrorContains(t, store.firstErrs[0], "expected exactly 5 fields")
 	require.Len(t, store.fireErrs, 1)
 	assert.ErrorContains(t, store.fireErrs[0], "Mars/Olympus")
 	require.Len(t, store.firings, 1)
 	assert.Equal(t, "wf", store.firings[0].Execution.WorkflowID)
+}
+
+func TestRunDoesNotLogErrorsCausedByCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	store := &fakeStore{syncErr: context.Canceled, dueErr: context.Canceled}
+
+	var logs bytes.Buffer
+
+	err := New(store, slog.New(slog.NewTextHandler(&logs, nil)), time.Millisecond).Run(ctx)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, logs.String(), "level=ERROR")
 }

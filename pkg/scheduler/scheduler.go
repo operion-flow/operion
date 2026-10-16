@@ -29,7 +29,7 @@ func New(store Store, logger *slog.Logger, idle time.Duration) *Scheduler {
 
 func (s *Scheduler) Run(ctx context.Context) error {
 	for {
-		if err := s.store.Sync(ctx, s.first); err != nil {
+		if err := s.store.Sync(ctx, s.first); err != nil && ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "failed to sync schedules", "error", err)
 		}
 
@@ -47,7 +47,9 @@ func (s *Scheduler) fireDue(ctx context.Context) {
 	for {
 		processed, err := s.store.ProcessDue(ctx, s.fire)
 		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to fire schedule", "error", err)
+			if ctx.Err() == nil {
+				s.logger.ErrorContext(ctx, "failed to fire schedule", "error", err)
+			}
 
 			return
 		}

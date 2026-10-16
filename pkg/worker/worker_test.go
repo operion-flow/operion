@@ -1,8 +1,10 @@
 package worker_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -88,27 +90,27 @@ func job(executionID, workflowID string) pending {
 	}
 }
 
-func newWorker(jobs *fakeJobs, workflows fakeWorkflows) *worker.Worker {
+func newWorker(jobs *fakeJobs, workflows fakeWorkflows, logs io.Writer) *worker.Worker {
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
-	return worker.New(jobs, workflows, engine.New(reg), slog.New(slog.DiscardHandler), time.Millisecond)
+	return worker.New(jobs, workflows, engine.New(reg), slog.New(slog.NewTextHandler(logs, nil)), time.Millisecond)
 }
 
-func runUntilEmpty(t *testing.T, jobs *fakeJobs, workflows fakeWorkflows) error {
+func runUntilEmpty(t *testing.T, jobs *fakeJobs, workflows fakeWorkflows, logs io.Writer) error {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	jobs.onEmpty = cancel
 
-	return newWorker(jobs, workflows).Run(ctx)
+	return newWorker(jobs, workflows, logs).Run(ctx)
 }
 
 func TestRunProcessesJobsUntilCancelled(t *testing.T) {
 	jobs := &fakeJobs{pending: []pending{job("exec-1", "wf"), job("exec-2", "wf")}}
 	workflows := fakeWorkflows{workflows: map[string]*models.Workflow{"wf": greetWorkflow()}}
 
-	err := runUntilEmpty(t, jobs, workflows)
+	err := runUntilEmpty(t, jobs, workflows, io.Discard)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Len(t, jobs.done, 2)
@@ -122,7 +124,7 @@ func TestRunProcessesJobsUntilCancelled(t *testing.T) {
 func TestRunFailsExecutionWhenWorkflowIsMissing(t *testing.T) {
 	jobs := &fakeJobs{pending: []pending{job("exec-1", "missing")}}
 
-	err := runUntilEmpty(t, jobs, fakeWorkflows{})
+	err := runUntilEmpty(t, jobs, fakeWorkflows{}, io.Discard)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Len(t, jobs.done, 1)
@@ -135,12 +137,15 @@ func TestRunKeepsJobWhenWorkflowLookupFails(t *testing.T) {
 	lookupErr := errors.New("connection reset")
 	jobs := &fakeJobs{pending: []pending{job("exec-1", "wf")}}
 
-	err := runUntilEmpty(t, jobs, fakeWorkflows{err: lookupErr})
+	var logs bytes.Buffer
+
+	err := runUntilEmpty(t, jobs, fakeWorkflows{err: lookupErr}, &logs)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, jobs.done)
 	require.Len(t, jobs.errs, 1)
 	require.ErrorIs(t, jobs.errs[0], lookupErr)
+	assert.Contains(t, logs.String(), "failed to process job")
 }
 
 func TestRunKeepsJobWhenContextIsCancelled(t *testing.T) {
@@ -150,10 +155,13 @@ func TestRunKeepsJobWhenContextIsCancelled(t *testing.T) {
 	jobs := &fakeJobs{pending: []pending{job("exec-1", "wf")}, onEmpty: func() {}}
 	workflows := fakeWorkflows{workflows: map[string]*models.Workflow{"wf": greetWorkflow()}}
 
-	err := newWorker(jobs, workflows).Run(ctx)
+	var logs bytes.Buffer
+
+	err := newWorker(jobs, workflows, &logs).Run(ctx)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, jobs.done)
 	require.Len(t, jobs.errs, 1)
 	require.ErrorIs(t, jobs.errs[0], context.Canceled)
+	assert.NotContains(t, logs.String(), "level=ERROR")
 }
