@@ -64,7 +64,7 @@ func (f *WebhookTriggerNodeFactory) Schema() map[string]any {
 				},
 			},
 		},
-		"required": []string{"webhook_path"},
+		schemaRequired: []string{"webhook_path"},
 		"examples": []map[string]any{
 			{
 				"webhook_path": "/webhook/orders",

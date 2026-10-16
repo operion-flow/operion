@@ -151,3 +151,29 @@ func TestJobsProcessNextSkipsLockedAndFutureJobs(t *testing.T) {
 	close(release)
 	require.NoError(t, <-done)
 }
+
+func TestJobsStartIgnoresARepeatedExecution(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+	job, execution := startJob(ctx, t, p, time.Now().Add(-time.Second))
+
+	repeated := job
+	repeated.ID = uuid.NewString()
+	require.NoError(t, p.Jobs().Start(ctx, execution, repeated))
+
+	var claimed []string
+
+	for {
+		processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, next models.Job, _ *models.ExecutionContext) error {
+			claimed = append(claimed, next.ID)
+
+			return nil
+		})
+		require.NoError(t, err)
+
+		if !processed {
+			break
+		}
+	}
+
+	assert.Equal(t, []string{job.ID}, claimed)
+}

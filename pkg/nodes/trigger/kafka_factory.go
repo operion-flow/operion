@@ -11,6 +11,8 @@ import (
 type KafkaTriggerNodeFactory struct{}
 
 // NewKafkaTriggerNodeFactory creates a new Kafka trigger node factory.
+const schemaRequired = "required"
+
 func NewKafkaTriggerNodeFactory() protocol.NodeFactory {
 	return &KafkaTriggerNodeFactory{}
 }
@@ -72,7 +74,7 @@ func (f *KafkaTriggerNodeFactory) Schema() map[string]any {
 				},
 			},
 		},
-		"required": []string{"topic", "consumer_group", "brokers"},
+		schemaRequired: []string{"topic"},
 		"examples": []map[string]any{
 			{
 				"topic":          "user-events",

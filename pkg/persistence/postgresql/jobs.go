@@ -40,15 +40,25 @@ func insertStart(ctx context.Context, tx *sql.Tx, execution *models.ExecutionCon
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO execution_contexts (
 			id, workflow_id, status, node_results, variables,
 			trigger_data, metadata, error_message, created_at, completed_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (id) DO NOTHING
 	`, columns...)
 	if err != nil {
 		return fmt.Errorf("failed to insert execution: %w", err)
+	}
+
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to insert execution: %w", err)
+	}
+
+	if inserted == 0 {
+		return nil
 	}
 
 	data, err := json.Marshal(job.Data)
