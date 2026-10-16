@@ -2,9 +2,11 @@ package trigger
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -178,8 +180,13 @@ func (n *SchedulerTriggerNode) OutputPorts() []models.OutputPort {
 
 // Validate validates the node configuration.
 func (n *SchedulerTriggerNode) Validate(config map[string]any) error {
-	if cronExpr, ok := config["cron_expression"].(string); !ok || cronExpr == "" {
+	cronExpr, ok := config["cron_expression"].(string)
+	if !ok || cronExpr == "" {
 		return errors.New("cron_expression is required and must be a non-empty string")
+	}
+
+	if _, err := cron.ParseStandard(cronExpr); err != nil {
+		return fmt.Errorf("invalid cron_expression: %w", err)
 	}
 
 	if timezone, ok := config["timezone"].(string); ok && timezone != "" {
