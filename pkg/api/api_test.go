@@ -91,17 +91,51 @@ func (f fakeExecutions) GetExecutionContext(_ context.Context, id string) (*mode
 	return execution, nil
 }
 
+type fakeCatalog struct {
+	definitions map[string]*models.EventDefinition
+	err         error
+}
+
+func (f *fakeCatalog) Save(_ context.Context, definition *models.EventDefinition) error {
+	if f.err != nil {
+		return f.err
+	}
+
+	f.definitions[definition.Key] = definition
+
+	return nil
+}
+
+func (f *fakeCatalog) Get(_ context.Context, key string) (*models.EventDefinition, error) {
+	definition, ok := f.definitions[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", persistence.ErrEventDefinitionNotFound, key)
+	}
+
+	return definition, nil
+}
+
+func (f *fakeCatalog) List(context.Context) ([]*models.EventDefinition, error) {
+	definitions := make([]*models.EventDefinition, 0, len(f.definitions))
+	for _, definition := range f.definitions {
+		definitions = append(definitions, definition)
+	}
+
+	return definitions, f.err
+}
+
 type server struct {
 	workflows  *fakeWorkflows
 	publisher  fakePublisher
 	executions fakeExecutions
+	catalog    *fakeCatalog
 }
 
 func (s server) do(t *testing.T, method, target, body string) (int, map[string]any) {
 	t.Helper()
 
 	app := fiber.New()
-	api.New(s.workflows, s.publisher, s.executions).Register(app)
+	api.New(s.workflows, s.publisher, s.executions, s.catalog).Register(app)
 
 	resp, err := app.Test(httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body)))
 	require.NoError(t, err)
@@ -127,6 +161,7 @@ func newServer() server {
 		executions: fakeExecutions{executions: map[string]*models.ExecutionContext{
 			"exec": {ID: "exec", Status: models.ExecutionStatusCompleted},
 		}},
+		catalog: &fakeCatalog{definitions: map[string]*models.EventDefinition{}},
 	}
 }
 
@@ -228,5 +263,83 @@ func TestStoreErrorsReturnInternalError(t *testing.T) {
 	}
 
 	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets"}`)
+	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+const employeeCreated = `{
+	"name": "Employee Criado",
+	"description": "A company hired someone",
+	"topic": "tp_employee_created",
+	"format": "json",
+	"schema": {"type": "object", "required": ["company_id"]},
+	"tenant_from": "payload",
+	"tenant_key": "company_id"
+}`
+
+func TestSaveAndGetEventDefinition(t *testing.T) {
+	s := newServer()
+
+	status, body := s.do(t, http.MethodPut, "/platform/event-definitions/employee_created", employeeCreated)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "employee_created", body["key"])
+	assert.Equal(t, "tp_employee_created", s.catalog.definitions["employee_created"].Topic)
+	assert.Equal(t, models.TenantFromPayload, s.catalog.definitions["employee_created"].TenantFrom)
+
+	status, body = s.do(t, http.MethodGet, "/platform/event-definitions/employee_created", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "company_id", body["tenant_key"])
+
+	status, _ = s.do(t, http.MethodGet, "/platform/event-definitions/missing", "")
+	assert.Equal(t, http.StatusNotFound, status)
+}
+
+func TestSaveEventDefinitionRejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{`},
+		{name: "missing topic", body: `{"name": "Employee Criado", "format": "json", "tenant_from": "payload", "tenant_key": "company_id"}`},
+		{name: "unknown format", body: `{"name": "Employee Criado", "topic": "t", "format": "xml", "tenant_from": "payload", "tenant_key": "company_id"}`},
+		{name: "unknown tenant source", body: `{"name": "Employee Criado", "topic": "t", "format": "json", "tenant_from": "query", "tenant_key": "company_id"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer()
+
+			status, _ := s.do(t, http.MethodPut, "/platform/event-definitions/employee_created", tt.body)
+
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Empty(t, s.catalog.definitions)
+		})
+	}
+}
+
+func TestCatalogShowsEventsWithoutRouting(t *testing.T) {
+	s := newServer()
+
+	status, _ := s.do(t, http.MethodPut, "/platform/event-definitions/employee_created", employeeCreated)
+	require.Equal(t, http.StatusOK, status)
+
+	status, body := s.do(t, http.MethodGet, "/catalog/events", "")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, body["items"], 1)
+
+	event := body["items"].([]any)[0].(map[string]any)
+	assert.Equal(t, "Employee Criado", event["name"])
+	assert.Equal(t, map[string]any{"type": "object", "required": []any{"company_id"}}, event["schema"])
+	assert.NotContains(t, event, "topic")
+	assert.NotContains(t, event, "tenant_key")
+}
+
+func TestCatalogStoreErrors(t *testing.T) {
+	s := newServer()
+	s.catalog.err = errStore
+
+	status, _ := s.do(t, http.MethodPut, "/platform/event-definitions/employee_created", employeeCreated)
+	assert.Equal(t, http.StatusInternalServerError, status)
+
+	status, _ = s.do(t, http.MethodGet, "/catalog/events", "")
 	assert.Equal(t, http.StatusInternalServerError, status)
 }

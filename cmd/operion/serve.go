@@ -102,7 +102,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
 	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
 	ingest.NewWebhook(store, jobs, logger).Register(app)
-	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository()).Register(app)
+	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository(), store.EventDefinitions()).Register(app)
 
 	var running sync.WaitGroup
 
