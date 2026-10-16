@@ -39,24 +39,16 @@ func NewKafkaTriggerNode(id string, config map[string]any) (*KafkaTriggerNode, e
 		return nil, errors.New("topic is required")
 	}
 
-	// Parse consumer_group (required)
 	if consumerGroup, ok := config["consumer_group"].(string); ok {
 		kafkaConfig.ConsumerGroup = consumerGroup
-	} else {
-		return nil, errors.New("consumer_group is required")
 	}
 
-	// Parse brokers (required)
 	if brokers, ok := config["brokers"].([]any); ok {
 		for _, broker := range brokers {
 			if brokerStr, ok := broker.(string); ok {
 				kafkaConfig.Brokers = append(kafkaConfig.Brokers, brokerStr)
 			}
 		}
-	}
-
-	if len(kafkaConfig.Brokers) == 0 {
-		return nil, errors.New("at least one broker is required")
 	}
 
 	return &KafkaTriggerNode{
@@ -205,14 +197,6 @@ func (n *KafkaTriggerNode) InputRequirements() models.InputRequirements {
 func (n *KafkaTriggerNode) Validate(config map[string]any) error {
 	if topic, ok := config["topic"].(string); !ok || topic == "" {
 		return errors.New("topic is required and must be a non-empty string")
-	}
-
-	if consumerGroup, ok := config["consumer_group"].(string); !ok || consumerGroup == "" {
-		return errors.New("consumer_group is required and must be a non-empty string")
-	}
-
-	if brokers, ok := config["brokers"].([]any); !ok || len(brokers) == 0 {
-		return errors.New("brokers is required and must be a non-empty array")
 	}
 
 	return nil

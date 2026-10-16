@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,34 +20,53 @@ import (
 	"github.com/dukex/operion/pkg/workflow"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/healthcheck"
+	"github.com/segmentio/kafka-go"
 	cli "github.com/urfave/cli/v3"
 )
 
 func newServeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "serve",
-		Usage: "Serve the workflow API and webhooks, fire schedules and run executions from the jobs table in one process",
+		Usage: "Serve the workflow API and webhooks, consume Kafka, fire schedules and run executions from the jobs table in one process",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
-			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the worker and the scheduler wait when nothing is due", Value: time.Second},
+			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the background loops wait when nothing is due", Value: time.Second},
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
+			&cli.StringSliceFlag{Name: "kafka-brokers", Usage: "Kafka brokers for trigger:kafka workflows; Kafka is off when empty", Sources: cli.EnvVars("KAFKA_BROKERS")},
+			&cli.StringFlag{Name: "kafka-group", Usage: "Kafka consumer group", Value: "operion", Sources: cli.EnvVars("KAFKA_GROUP")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			return serve(ctx, command.String("database-url"), command.Int("port"), command.Duration("poll-interval"), command.String("log-level"))
+			return serve(ctx, serveOptions{
+				databaseURL:  command.String("database-url"),
+				port:         command.Int("port"),
+				pollInterval: command.Duration("poll-interval"),
+				logLevel:     command.String("log-level"),
+				kafkaBrokers: command.StringSlice("kafka-brokers"),
+				kafkaGroup:   command.String("kafka-group"),
+			})
 		},
 	}
 }
 
-func serve(ctx context.Context, databaseURL string, port int, pollInterval time.Duration, logLevel string) error {
-	log.Setup(logLevel)
+type serveOptions struct {
+	databaseURL  string
+	port         int
+	pollInterval time.Duration
+	logLevel     string
+	kafkaBrokers []string
+	kafkaGroup   string
+}
+
+func serve(ctx context.Context, options serveOptions) error {
+	log.Setup(options.logLevel)
 
 	logger := log.WithModule("operion")
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	store, err := postgresql.NewPersistence(ctx, logger, databaseURL)
+	store, err := postgresql.NewPersistence(ctx, logger, options.databaseURL)
 	if err != nil {
 		return err
 	}
@@ -58,7 +78,25 @@ func serve(ctx context.Context, databaseURL string, port int, pollInterval time.
 
 	e := engine.New(reg)
 	jobs := store.Jobs()
-	w := worker.New(jobs, store.WorkflowRepository(), e, logger, pollInterval)
+
+	loops := []func(context.Context) error{
+		worker.New(jobs, store.WorkflowRepository(), e, logger, options.pollInterval).Run,
+		scheduler.New(store.Schedules(), logger, options.pollInterval).Run,
+	}
+
+	if len(options.kafkaBrokers) > 0 {
+		newReader := func(topics []string) ingest.KafkaReader {
+			return kafka.NewReader(kafka.ReaderConfig{
+				Brokers:     options.kafkaBrokers,
+				GroupID:     options.kafkaGroup,
+				GroupTopics: topics,
+				StartOffset: kafka.LastOffset,
+			})
+		}
+
+		handle := ingest.NewKafka(store, jobs, logger).Handle
+		loops = append(loops, ingest.NewKafkaConsumer(newReader, store, handle, options.pollInterval, logger).Run)
+	}
 
 	app := fiber.New()
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
@@ -66,29 +104,24 @@ func serve(ctx context.Context, databaseURL string, port int, pollInterval time.
 	ingest.NewWebhook(store, jobs, logger).Register(app)
 	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository(), store.EventDefinitions()).Register(app)
 
-	workerDone := make(chan struct{})
+	var running sync.WaitGroup
 
-	go func() {
-		_ = w.Run(ctx)
+	for _, loop := range loops {
+		running.Add(1)
 
-		close(workerDone)
-	}()
+		go func() {
+			defer running.Done()
 
-	schedulerDone := make(chan struct{})
+			_ = loop(ctx)
+		}()
+	}
 
-	go func() {
-		_ = scheduler.New(store.Schedules(), logger, pollInterval).Run(ctx)
+	logger.InfoContext(ctx, "operion serving", "port", options.port, "kafka", len(options.kafkaBrokers) > 0)
 
-		close(schedulerDone)
-	}()
-
-	logger.InfoContext(ctx, "operion serving", "port", port)
-
-	err = app.Listen(":"+strconv.Itoa(port), fiber.ListenConfig{GracefulContext: ctx, DisableStartupMessage: true})
+	err = app.Listen(":"+strconv.Itoa(options.port), fiber.ListenConfig{GracefulContext: ctx, DisableStartupMessage: true})
 
 	stop()
-	<-workerDone
-	<-schedulerDone
+	running.Wait()
 
 	return err
 }

@@ -63,7 +63,7 @@ func (f *SchedulerTriggerNodeFactory) Schema() map[string]any {
 				},
 			},
 		},
-		"required": []string{"cron_expression"},
+		schemaRequired: []string{"cron_expression"},
 		"examples": []map[string]any{
 			{
 				"cron_expression": "0 9 * * MON-FRI",
