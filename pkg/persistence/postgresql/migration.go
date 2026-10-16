@@ -116,5 +116,15 @@ func migrations() map[int]string {
 			CREATE INDEX idx_jobs_run_at ON jobs(run_at);
 			CREATE INDEX idx_jobs_execution_id ON jobs(execution_id);
 		`,
+		3: `
+			CREATE TABLE schedules (
+				workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+				node_id VARCHAR(255) NOT NULL,
+				next_run_at TIMESTAMP WITH TIME ZONE NOT NULL,
+				PRIMARY KEY (workflow_id, node_id)
+			);
+
+			CREATE INDEX idx_schedules_next_run_at ON schedules(next_run_at);
+		`,
 	}
 }

@@ -27,6 +27,14 @@ func (j *Jobs) Start(ctx context.Context, execution *models.ExecutionContext, jo
 
 	defer func() { _ = tx.Rollback() }()
 
+	if err := insertStart(ctx, tx, execution, job); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func insertStart(ctx context.Context, tx *sql.Tx, execution *models.ExecutionContext, job models.Job) error {
 	columns, err := executionColumns(execution)
 	if err != nil {
 		return err
@@ -56,7 +64,7 @@ func (j *Jobs) Start(ctx context.Context, execution *models.ExecutionContext, jo
 		return fmt.Errorf("failed to insert job: %w", err)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (j *Jobs) ProcessNext(
