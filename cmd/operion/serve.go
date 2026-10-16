@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/IBM/sarama"
 	"github.com/dukex/operion/pkg/api"
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/ingest"
@@ -21,6 +20,7 @@ import (
 	"github.com/dukex/operion/pkg/workflow"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/healthcheck"
+	"github.com/segmentio/kafka-go"
 	cli "github.com/urfave/cli/v3"
 )
 
@@ -85,18 +85,17 @@ func serve(ctx context.Context, options serveOptions) error {
 	}
 
 	if len(options.kafkaBrokers) > 0 {
-		config := sarama.NewConfig()
-		config.Consumer.Offsets.Initial = sarama.OffsetNewest
-
-		group, err := sarama.NewConsumerGroup(options.kafkaBrokers, options.kafkaGroup, config)
-		if err != nil {
-			return err
+		newReader := func(topics []string) ingest.KafkaReader {
+			return kafka.NewReader(kafka.ReaderConfig{
+				Brokers:     options.kafkaBrokers,
+				GroupID:     options.kafkaGroup,
+				GroupTopics: topics,
+				StartOffset: kafka.LastOffset,
+			})
 		}
 
-		defer func() { _ = group.Close() }()
-
 		handle := ingest.NewKafka(store, jobs, logger).Handle
-		loops = append(loops, ingest.NewKafkaConsumer(group, store, handle, options.pollInterval, logger).Run)
+		loops = append(loops, ingest.NewKafkaConsumer(newReader, store, handle, options.pollInterval, logger).Run)
 	}
 
 	app := fiber.New()

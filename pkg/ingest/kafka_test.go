@@ -66,7 +66,7 @@ func TestKafkaStartsOneExecutionPerWorkflowOnTheTopic(t *testing.T) {
 	assert.Equal(t, "external", first.job.Port)
 	assert.Equal(t, map[string]any{
 		"topic":        employeesTopic,
-		"partition":    int32(2),
+		"partition":    2,
 		"offset":       int64(41),
 		"message_key":  "emp-1",
 		"message_data": map[string]any{"name": "Ana", "company_id": "acme"},

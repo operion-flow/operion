@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IBM/sarama"
 	"github.com/dukex/operion/pkg/ingest"
+	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -31,34 +31,29 @@ func TestKafkaConsumerReadsFromABroker(t *testing.T) {
 	brokers, err := container.Brokers(ctx)
 	require.NoError(t, err)
 
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	config.Consumer.Offsets.Initial = sarama.OffsetOldest
+	writer := &kafka.Writer{Addr: kafka.TCP(brokers...), AllowAutoTopicCreation: true}
 
-	producer, err := sarama.NewSyncProducer(brokers, config)
-	require.NoError(t, err)
+	defer func() { _ = writer.Close() }()
 
-	defer func() { _ = producer.Close() }()
-
-	_, _, err = producer.SendMessage(&sarama.ProducerMessage{
-		Topic:   employeesTopic,
-		Key:     sarama.StringEncoder("emp-1"),
-		Value:   sarama.StringEncoder(`{"name": "Ana"}`),
-		Headers: []sarama.RecordHeader{{Key: []byte(sourceHeader), Value: []byte("hr")}},
-	})
-	require.NoError(t, err)
-
-	group, err := sarama.NewConsumerGroup(brokers, "operion-test", config)
-	require.NoError(t, err)
-
-	defer func() { _ = group.Close() }()
+	require.Eventually(t, func() bool {
+		return writer.WriteMessages(ctx, kafka.Message{
+			Topic:   employeesTopic,
+			Key:     []byte("emp-1"),
+			Value:   []byte(`{"name": "Ana"}`),
+			Headers: []kafka.Header{{Key: sourceHeader, Value: []byte("hr")}},
+		}) == nil
+	}, 30*time.Second, 500*time.Millisecond)
 
 	received := make(chan ingest.KafkaMessage, 1)
 	consumerCtx, stop := context.WithCancel(ctx)
 
 	defer stop()
 
-	consumer := ingest.NewKafkaConsumer(group, always(employeesTopic), func(_ context.Context, message ingest.KafkaMessage) error {
+	newReader := func(topics []string) ingest.KafkaReader {
+		return kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, GroupID: "operion-test", GroupTopics: topics, StartOffset: kafka.FirstOffset})
+	}
+
+	consumer := ingest.NewKafkaConsumer(newReader, always(employeesTopic), func(_ context.Context, message ingest.KafkaMessage) error {
 		received <- message
 
 		return nil

@@ -4,32 +4,37 @@ import (
 	"context"
 	"log/slog"
 	"slices"
-	"sync"
 	"time"
 
-	"github.com/IBM/sarama"
+	"github.com/segmentio/kafka-go"
 )
 
 type KafkaTopics interface {
 	KafkaTopics(ctx context.Context) ([]string, error)
 }
 
+type KafkaReader interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, messages ...kafka.Message) error
+	Close() error
+}
+
 type KafkaConsumer struct {
-	group   sarama.ConsumerGroup
-	topics  KafkaTopics
-	handle  func(context.Context, KafkaMessage) error
-	refresh time.Duration
-	logger  *slog.Logger
+	newReader func(topics []string) KafkaReader
+	topics    KafkaTopics
+	handle    func(context.Context, KafkaMessage) error
+	refresh   time.Duration
+	logger    *slog.Logger
 }
 
 func NewKafkaConsumer(
-	group sarama.ConsumerGroup,
+	newReader func(topics []string) KafkaReader,
 	topics KafkaTopics,
 	handle func(context.Context, KafkaMessage) error,
 	refresh time.Duration,
 	logger *slog.Logger,
 ) *KafkaConsumer {
-	return &KafkaConsumer{group: group, topics: topics, handle: handle, refresh: refresh, logger: logger}
+	return &KafkaConsumer{newReader: newReader, topics: topics, handle: handle, refresh: refresh, logger: logger}
 }
 
 func (c *KafkaConsumer) Run(ctx context.Context) error {
@@ -50,7 +55,7 @@ func (c *KafkaConsumer) Run(ctx context.Context) error {
 				continue
 			}
 
-			c.logger.ErrorContext(ctx, "kafka session ended", "topics", topics, "error", err)
+			c.logger.ErrorContext(ctx, "kafka reader stopped", "topics", topics, "error", err)
 		}
 
 		select {
@@ -64,14 +69,29 @@ func (c *KafkaConsumer) consume(ctx context.Context, topics []string) error {
 	session, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	reader := c.newReader(topics)
+	defer func() { _ = reader.Close() }()
+
 	go c.cancelOnTopicChange(session, cancel, topics)
 
-	handler := &claimHandler{handle: c.handle, cancel: cancel}
-	if err := c.group.Consume(session, topics, handler); err != nil {
-		return err
-	}
+	for {
+		message, err := reader.FetchMessage(session)
+		if err == nil {
+			err = c.handle(session, toKafkaMessage(message))
+		}
 
-	return handler.failure()
+		if err == nil {
+			err = reader.CommitMessages(session, message)
+		}
+
+		if session.Err() != nil {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (c *KafkaConsumer) cancelOnTopicChange(ctx context.Context, cancel context.CancelFunc, current []string) {
@@ -92,64 +112,10 @@ func (c *KafkaConsumer) cancelOnTopicChange(ctx context.Context, cancel context.
 	}
 }
 
-type claimHandler struct {
-	handle func(context.Context, KafkaMessage) error
-	cancel context.CancelFunc
-
-	mu  sync.Mutex
-	err error
-}
-
-func (*claimHandler) Setup(sarama.ConsumerGroupSession) error {
-	return nil
-}
-
-func (*claimHandler) Cleanup(sarama.ConsumerGroupSession) error {
-	return nil
-}
-
-func (h *claimHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for {
-		select {
-		case <-session.Context().Done():
-			return nil
-		case message, ok := <-claim.Messages():
-			if !ok {
-				return nil
-			}
-
-			if err := h.handle(session.Context(), toKafkaMessage(message)); err != nil {
-				h.fail(err)
-
-				return err
-			}
-
-			session.MarkMessage(message, "")
-		}
-	}
-}
-
-func (h *claimHandler) fail(err error) {
-	h.mu.Lock()
-	if h.err == nil {
-		h.err = err
-	}
-	h.mu.Unlock()
-
-	h.cancel()
-}
-
-func (h *claimHandler) failure() error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	return h.err
-}
-
-func toKafkaMessage(message *sarama.ConsumerMessage) KafkaMessage {
+func toKafkaMessage(message kafka.Message) KafkaMessage {
 	headers := make(map[string]string, len(message.Headers))
 	for _, header := range message.Headers {
-		headers[string(header.Key)] = string(header.Value)
+		headers[header.Key] = string(header.Value)
 	}
 
 	return KafkaMessage{
@@ -159,6 +125,6 @@ func toKafkaMessage(message *sarama.ConsumerMessage) KafkaMessage {
 		Key:       message.Key,
 		Value:     message.Value,
 		Headers:   headers,
-		Timestamp: message.Timestamp,
+		Timestamp: message.Time,
 	}
 }
