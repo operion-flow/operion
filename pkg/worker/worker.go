@@ -39,7 +39,7 @@ func New(jobs Jobs, workflows Workflows, e *engine.Engine, logger *slog.Logger, 
 func (w *Worker) Run(ctx context.Context) error {
 	for {
 		processed, err := w.jobs.ProcessNext(ctx, w.process)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
 			w.logger.ErrorContext(ctx, "failed to process job", "error", err)
 		}
 
