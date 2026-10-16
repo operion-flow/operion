@@ -36,7 +36,7 @@ const (
 
 var (
 	setupOnce sync.Once
-	setupErr  error
+	errSetup  error
 	workDir   string
 	binary    string
 	adminURL  string
@@ -68,8 +68,8 @@ func setup(t *testing.T) {
 		testcontainers.SkipIfProviderIsNotHealthy(t)
 	}
 
-	setupOnce.Do(func() { setupErr = prepare() })
-	require.NoError(t, setupErr)
+	setupOnce.Do(func() { errSetup = prepare() })
+	require.NoError(t, errSetup)
 }
 
 func prepare() error {
@@ -84,7 +84,7 @@ func prepare() error {
 
 	binary = filepath.Join(workDir, "operion")
 
-	output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, "../cmd/operion").CombinedOutput()
+	output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, "../cmd/operion").CombinedOutput() //nolint:gosec // builds into a temp dir this test owns
 	if err != nil {
 		return fmt.Errorf("build operion: %w: %s", err, output)
 	}
@@ -156,7 +156,7 @@ func startServe(t *testing.T) string {
 
 	var output bytes.Buffer
 
-	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, "serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn")
+	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, "serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn") //nolint:gosec // runs the binary this test just built
 
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL)
 	cmd.Stdout = &output
@@ -277,7 +277,7 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 			node("notify", "httprequest", "action", map[string]any{
 				"url":    external.URL + "/welcome",
 				"method": http.MethodPost,
-				"body":   `{"employee": "{{.node_results.trigger.body.name}}"}`,
+				"body":   `{"employee": "{{.node_results.trigger.body.employee}}"}`,
 			}),
 			node("welcome", "transform", "action", map[string]any{"expression": "{{.node_results.notify.json.greeting}}"}),
 			node("done", "log", "action", map[string]any{"message": "{{.node_results.welcome.result}}"}),
@@ -294,7 +294,7 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, published)
 	assert.Equal(t, "published", published[statusKey])
 
-	status, accepted := call(t, http.MethodPost, base+"/webhooks"+webhookPath, map[string]any{"name": "Ana"})
+	status, accepted := call(t, http.MethodPost, base+"/webhooks"+webhookPath, map[string]any{"employee": "Ana"})
 	require.Equal(t, http.StatusAccepted, status, accepted)
 
 	executionID := accepted["executions"].([]any)[0].(string)

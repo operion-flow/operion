@@ -100,7 +100,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lib/pq v1.10.9
-	github.com/testcontainers/testcontainers-go v0.38.0 // indirect
+	github.com/testcontainers/testcontainers-go v0.38.0
 	golang.org/x/sys v0.33.0 // indirect
 )
 
