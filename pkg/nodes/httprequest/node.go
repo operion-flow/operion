@@ -132,7 +132,10 @@ func (n *HTTPRequestNode) Execute(ctx models.ExecutionContext, inputs map[string
 			return n.createErrorResult(fmt.Sprintf("failed to render body template: %v", err)), nil
 		}
 
-		renderedBody, _ = renderedBodyAny.(string)
+		renderedBody, err = requestBody(renderedBodyAny)
+		if err != nil {
+			return n.createErrorResult(fmt.Sprintf("failed to encode body: %v", err)), nil
+		}
 	}
 
 	// Render headers
@@ -180,6 +183,16 @@ func (n *HTTPRequestNode) Execute(ctx models.ExecutionContext, inputs map[string
 
 	// All attempts failed - return error on error port
 	return n.createErrorResult(fmt.Sprintf("HTTP request failed after %d attempts: %v", n.config.Retries.Attempts, lastErr)), nil
+}
+
+func requestBody(rendered any) (string, error) {
+	if text, ok := rendered.(string); ok {
+		return text, nil
+	}
+
+	encoded, err := json.Marshal(rendered)
+
+	return string(encoded), err
 }
 
 // HTTPError represents an HTTP error with status code.

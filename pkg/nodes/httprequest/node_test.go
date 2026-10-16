@@ -1,6 +1,7 @@
 package httprequest
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -172,6 +173,53 @@ func TestHTTPRequestNode_Execute_WithTemplating(t *testing.T) {
 
 	if successResult.Status != string(models.NodeStatusSuccess) {
 		t.Errorf("Expected success status, got: %s", successResult.Status)
+	}
+}
+
+func TestHTTPRequestNode_Execute_SendsRenderedBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "json", body: `{"employee": "{{.node_results.trigger.body.name}}"}`, want: `{"employee":"Ana"}`},
+		{name: "text", body: `hello {{.node_results.trigger.body.name}}`, want: `hello Ana`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			received := make(chan string, 1)
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- string(body)
+
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			node, err := NewHTTPRequestNode("notify", map[string]any{"url": server.URL, "method": "POST", "body": tt.body})
+			if err != nil {
+				t.Fatalf("Failed to create node: %v", err)
+			}
+
+			ctx := models.ExecutionContext{NodeResults: map[string]models.NodeResult{
+				"trigger": {Data: map[string]any{"body": map[string]any{"name": "Ana"}}},
+			}}
+
+			results, err := node.Execute(ctx, map[string]models.NodeResult{})
+			if err != nil {
+				t.Fatalf("Node execution failed: %v", err)
+			}
+
+			if _, ok := results[OutputPortSuccess]; !ok {
+				t.Fatalf("Expected success output port, got %v", results)
+			}
+
+			if body := <-received; body != tt.want {
+				t.Errorf("Expected body %q, got %q", tt.want, body)
+			}
+		})
 	}
 }
 
