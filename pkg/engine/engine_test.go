@@ -3,7 +3,6 @@ package engine_test
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 
 	"github.com/dukex/operion/pkg/engine"
@@ -44,7 +43,7 @@ func (c creator) CreateNode(ctx context.Context, nodeType, nodeID string, config
 }
 
 func newEngine(stubs map[string]stubNode) *engine.Engine {
-	reg := registry.NewRegistry(slog.New(slog.DiscardHandler))
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	return engine.New(creator{registry: reg, stubs: stubs})

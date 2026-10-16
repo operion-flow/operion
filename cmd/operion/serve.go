@@ -73,7 +73,7 @@ func serve(ctx context.Context, options serveOptions) error {
 
 	defer func() { _ = store.Close(context.WithoutCancel(ctx)) }()
 
-	reg := registry.NewRegistry(logger)
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	e := engine.New(reg)
