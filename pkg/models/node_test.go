@@ -11,6 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	requiredTag = "required"
+	minTag      = "min"
+)
+
 // Connection Model Tests
 
 func TestConnection_Validation_ValidConnection(t *testing.T) {

@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -170,7 +169,7 @@ func createTestPersistence() *testPersistence {
 }
 
 func newTestValidator() *engine.Engine {
-	reg := registry.NewRegistry(slog.New(slog.DiscardHandler))
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	return engine.New(reg)
