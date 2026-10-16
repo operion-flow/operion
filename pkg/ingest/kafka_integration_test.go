@@ -19,6 +19,8 @@ func TestKafkaConsumerReadsFromABroker(t *testing.T) {
 		t.Skip("needs Docker to start Kafka")
 	}
 
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+
 	ctx := t.Context()
 
 	container, err := kafkaTc.Run(ctx, "confluentinc/confluent-local:7.7.0", testcontainers.WithEnv(map[string]string{
