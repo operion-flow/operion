@@ -3,23 +3,10 @@ GOFLAGS ?= -ldflags="-s -w"
 ./bin/operion:
 	go build $(GOFLAGS) -o ./bin/operion ./cmd/operion
 
-./bin/operion-worker:
-	go build $(GOFLAGS) -o ./bin/operion-worker ./cmd/operion-worker
 
+.PHONY: build build-linux clean test test-coverage fmt lint docs mod-check
 
-./bin/operion-api:
-	go build $(GOFLAGS) -o ./bin/operion-api ./cmd/operion-api
-
-./bin/operion-activator:
-	go build $(GOFLAGS) -o ./bin/operion-activator ./cmd/operion-activator
-
-./bin/operion-source-manager:
-	go build $(GOFLAGS) -o ./bin/operion-source-manager ./cmd/operion-source-manager
-
-
-.PHONY: build build-linux clean test test-integration test-all-with-integration test-coverage fmt lint docs mod-check
-
-build: ./bin/operion ./bin/operion-worker ./bin/operion-api ./bin/operion-activator ./bin/operion-source-manager
+build: ./bin/operion
 
 clean:
 	rm -rf ./bin
@@ -29,17 +16,6 @@ test:
 	go test -p=1 ./pkg/persistence/postgresql
 	@echo "Running all other tests in parallel..."
 	go test $(shell go list ./... | grep -v "pkg/persistence/postgresql")
-
-test-integration:
-	@echo "Running integration tests (requires Docker)..."
-	@echo "Testing Kafka provider integration..."
-	go test -tags=integration -v ./pkg/providers/kafka/persistence/
-	go test -tags=integration -v ./pkg/providers/kafka/
-	@echo "Testing Scheduler provider integration..."
-	go test -tags=integration -v ./pkg/providers/scheduler/persistence/
-	@echo "Integration tests completed"
-
-test-all-with-integration: test test-integration
 
 test-all: test
 
@@ -67,16 +43,6 @@ mod-check:
 	go mod verify
 	go mod tidy
 
-
-examples-workder:
-	cd examples/ && docker compose up worker-kafka -d --build
-
-examples-all: examples-stop examples-workder
-	cd examples/ && docker compose up akhq -d
-	open http://localhost:8080
-
-examples-stop:
-	cd examples/ && docker compose down
 
 release:
 	git tag ${tag} -m "Release ${tag}" -f
