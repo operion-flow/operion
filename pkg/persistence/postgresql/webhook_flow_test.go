@@ -78,7 +78,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 	logger := slog.New(slog.DiscardHandler)
 
-	reg := registry.NewRegistry(logger)
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	e := engine.New(reg)

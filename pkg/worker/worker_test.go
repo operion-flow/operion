@@ -89,7 +89,7 @@ func job(executionID, workflowID string) pending {
 }
 
 func newWorker(jobs *fakeJobs, workflows fakeWorkflows) *worker.Worker {
-	reg := registry.NewRegistry(slog.New(slog.DiscardHandler))
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
 	return worker.New(jobs, workflows, engine.New(reg), slog.New(slog.DiscardHandler), time.Millisecond)

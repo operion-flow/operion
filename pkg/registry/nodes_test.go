@@ -3,13 +3,12 @@ package registry
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 )
 
 func TestRegisterDefaultNodes(t *testing.T) {
 	// Create a new registry
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 
 	// Register default nodes
 	registry.RegisterDefaultNodes()
@@ -27,24 +26,12 @@ func TestRegisterDefaultNodes(t *testing.T) {
 		"trigger:kafka",
 	}
 
-	availableNodes := registry.AvailableNodes()
-	if len(availableNodes) != len(expectedNodes) {
-		t.Errorf("Expected %d nodes, got %d", len(expectedNodes), len(availableNodes))
+	if len(registry.nodeFactories) != len(expectedNodes) {
+		t.Errorf("Expected %d nodes, got %d", len(expectedNodes), len(registry.nodeFactories))
 	}
 
-	// Verify each expected node type is registered
 	for _, expectedType := range expectedNodes {
-		found := false
-
-		for _, factory := range availableNodes {
-			if factory.ID() == expectedType {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
+		if _, found := registry.nodeFactories[expectedType]; !found {
 			t.Errorf("Expected node type '%s' not found in registry", expectedType)
 		}
 	}
@@ -52,7 +39,7 @@ func TestRegisterDefaultNodes(t *testing.T) {
 
 func TestCreateNode_HTTPRequest(t *testing.T) {
 	// Create registry and register nodes
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 	registry.RegisterDefaultNodes()
 
 	// Test creating an HTTP request node
@@ -77,7 +64,7 @@ func TestCreateNode_HTTPRequest(t *testing.T) {
 
 func TestCreateNode_Transform(t *testing.T) {
 	// Create registry and register nodes
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 	registry.RegisterDefaultNodes()
 
 	// Test creating a transform node
@@ -101,7 +88,7 @@ func TestCreateNode_Transform(t *testing.T) {
 
 func TestCreateNode_Conditional(t *testing.T) {
 	// Create registry and register nodes
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 	registry.RegisterDefaultNodes()
 
 	// Test creating a conditional node
@@ -125,7 +112,7 @@ func TestCreateNode_Conditional(t *testing.T) {
 
 func TestCreateNode_Log(t *testing.T) {
 	// Create registry and register nodes
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 	registry.RegisterDefaultNodes()
 
 	// Test creating a log node
@@ -150,7 +137,7 @@ func TestCreateNode_Log(t *testing.T) {
 
 func TestCreateNode_UnknownType(t *testing.T) {
 	// Create registry and register nodes
-	registry := NewRegistry(slog.Default())
+	registry := NewRegistry()
 	registry.RegisterDefaultNodes()
 
 	// Test creating a node with unknown type
