@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,7 +49,7 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string,
 		return err
 	}
 
-	reg := registry.NewRegistry(slog.Default())
+	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 	e := engine.New(reg)
 
