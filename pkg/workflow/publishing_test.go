@@ -151,12 +151,7 @@ func (p *testPersistence) WorkflowRepository() persistence.WorkflowRepository {
 	return p.workflowRepo
 }
 
-func (p *testPersistence) NodeRepository() persistence.NodeRepository             { return nil }
-func (p *testPersistence) ConnectionRepository() persistence.ConnectionRepository { return nil }
 func (p *testPersistence) ExecutionContextRepository() persistence.ExecutionContextRepository {
-	return nil
-}
-func (p *testPersistence) InputCoordinationRepository() persistence.InputCoordinationRepository {
 	return nil
 }
 

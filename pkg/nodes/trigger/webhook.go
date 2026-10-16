@@ -140,16 +140,6 @@ func (n *WebhookTriggerNode) InputPorts() []models.InputPort {
 	}
 }
 
-// InputRequirements returns the input requirements for the webhook trigger node.
-func (n *WebhookTriggerNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{WebhookInputPortExternal}, // ["external"]
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // OutputPorts returns the output ports for the webhook trigger node.
 func (n *WebhookTriggerNode) OutputPorts() []models.OutputPort {
 	return []models.OutputPort{

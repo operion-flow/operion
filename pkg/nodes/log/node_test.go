@@ -247,49 +247,6 @@ func TestLogNode_Schema(t *testing.T) {
 	}
 }
 
-func TestLogNode_InputRequirements(t *testing.T) {
-	// Create log node
-	config := map[string]any{
-		"message": "test message",
-		"level":   "info",
-	}
-
-	node, err := NewLogNode("test-log", config)
-	if err != nil {
-		t.Fatalf("Failed to create node: %v", err)
-	}
-
-	// Test InputRequirements
-	requirements := node.InputRequirements()
-
-	// Verify required ports
-	expectedRequiredPorts := []string{"main"}
-	if len(requirements.RequiredPorts) != len(expectedRequiredPorts) {
-		t.Errorf("Expected %d required ports, got %d", len(expectedRequiredPorts), len(requirements.RequiredPorts))
-	}
-
-	for i, port := range expectedRequiredPorts {
-		if i >= len(requirements.RequiredPorts) || requirements.RequiredPorts[i] != port {
-			t.Errorf("Expected required port '%s', got '%v'", port, requirements.RequiredPorts)
-		}
-	}
-
-	// Verify optional ports
-	if len(requirements.OptionalPorts) != 0 {
-		t.Errorf("Expected no optional ports, got %d", len(requirements.OptionalPorts))
-	}
-
-	// Verify wait mode
-	if requirements.WaitMode != models.WaitModeAll {
-		t.Errorf("Expected WaitModeAll, got %s", requirements.WaitMode)
-	}
-
-	// Verify timeout
-	if requirements.Timeout != nil {
-		t.Errorf("Expected no timeout, got %v", requirements.Timeout)
-	}
-}
-
 func TestLogNodeFactory(t *testing.T) {
 	const expectedLogID = "log"
 

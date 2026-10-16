@@ -10,6 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func createTestWorkflow(t *testing.T) *models.Workflow {
+	t.Helper()
+
+	return &models.Workflow{
+		ID:          uuid.New().String(),
+		Name:        "Execution Test Workflow",
+		Description: "A workflow for testing executions",
+		Nodes: []*models.WorkflowNode{
+			{ID: "action1", Type: logNodeType, Category: models.CategoryTypeAction, Name: "action1", Config: map[string]any{messageKey: "execution test"}, Enabled: true},
+		},
+		Status: models.WorkflowStatusPublished,
+	}
+}
+
 func createTestExecutionContext(t *testing.T, workflowID string) *models.ExecutionContext {
 	t.Helper()
 
@@ -56,7 +70,7 @@ func TestExecutionContextRepository_SaveAndGetExecutionContext(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 
 	// Create and save a workflow first
-	workflow := createTestWorkflowForNodes(t)
+	workflow := createTestWorkflow(t)
 	err := p.WorkflowRepository().Save(ctx, workflow)
 	require.NoError(t, err)
 
@@ -109,7 +123,7 @@ func TestExecutionContextRepository_UpdateExecutionContext(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 
 	// Create and save a workflow first
-	workflow := createTestWorkflowForNodes(t)
+	workflow := createTestWorkflow(t)
 	err := p.WorkflowRepository().Save(ctx, workflow)
 	require.NoError(t, err)
 
@@ -150,12 +164,12 @@ func TestExecutionContextRepository_GetExecutionsByWorkflow(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 
 	// Create and save workflows
-	workflow1 := createTestWorkflowForNodes(t)
+	workflow1 := createTestWorkflow(t)
 	workflow1.Name = "Workflow 1"
 	err := p.WorkflowRepository().Save(ctx, workflow1)
 	require.NoError(t, err)
 
-	workflow2 := createTestWorkflowForNodes(t)
+	workflow2 := createTestWorkflow(t)
 	workflow2.Name = "Workflow 2"
 	err = p.WorkflowRepository().Save(ctx, workflow2)
 	require.NoError(t, err)
@@ -199,7 +213,7 @@ func TestExecutionContextRepository_GetExecutionsByWorkflow(t *testing.T) {
 	assert.Equal(t, models.ExecutionStatusFailed, executions[0].Status)
 
 	// Test with workflow that has no executions
-	workflow3 := createTestWorkflowForNodes(t)
+	workflow3 := createTestWorkflow(t)
 	workflow3.Name = "Workflow 3"
 	err = p.WorkflowRepository().Save(ctx, workflow3)
 	require.NoError(t, err)
@@ -214,7 +228,7 @@ func TestExecutionContextRepository_GetExecutionsByStatus(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 
 	// Create and save a workflow
-	workflow := createTestWorkflowForNodes(t)
+	workflow := createTestWorkflow(t)
 	err := p.WorkflowRepository().Save(ctx, workflow)
 	require.NoError(t, err)
 
@@ -281,7 +295,7 @@ func TestExecutionContextRepository_ComplexDataTypes(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 
 	// Create and save a workflow
-	workflow := createTestWorkflowForNodes(t)
+	workflow := createTestWorkflow(t)
 	err := p.WorkflowRepository().Save(ctx, workflow)
 	require.NoError(t, err)
 

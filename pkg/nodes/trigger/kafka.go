@@ -191,16 +191,6 @@ func (n *KafkaTriggerNode) OutputPorts() []models.OutputPort {
 	}
 }
 
-// InputRequirements returns the input requirements for the Kafka trigger node.
-func (n *KafkaTriggerNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{KafkaInputPortExternal}, // ["external"]
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *KafkaTriggerNode) Validate(config map[string]any) error {
 	if topic, ok := config["topic"].(string); !ok || topic == "" {
