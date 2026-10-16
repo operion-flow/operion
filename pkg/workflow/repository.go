@@ -14,6 +14,7 @@ import (
 var (
 	// ErrWorkflowNotFound is returned when a workflow is not found.
 	ErrWorkflowNotFound = errors.New("workflow not found")
+	ErrInvalidWorkflow  = errors.New("workflow validation failed")
 )
 
 type Repository struct {
@@ -70,6 +71,11 @@ func (r *Repository) Create(ctx context.Context, workflow *models.Workflow) (*mo
 	now := time.Now().UTC()
 	workflow.ID = uuid.New().String()
 	workflow.CreatedAt = now
+
+	if workflow.WorkflowGroupID == "" {
+		workflow.WorkflowGroupID = workflow.ID
+	}
+
 	workflow.UpdatedAt = now
 
 	if workflow.Status == "" {

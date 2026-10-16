@@ -3,6 +3,7 @@ package postgresql_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,12 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dukex/operion/pkg/api"
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/ingest"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
+	"github.com/dukex/operion/pkg/workflow"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -57,46 +60,79 @@ func TestWebhookTriggersMatchPublishedWorkflowsByPath(t *testing.T) {
 	assert.Equal(t, triggerNodeID, matches[0].TriggerNode.ID)
 }
 
-func TestWebhookExecutionRunsThroughJobsTable(t *testing.T) {
-	p, ctx, _ := setupTestDB(t)
-	logger := slog.New(slog.DiscardHandler)
+func request(t *testing.T, app *fiber.App, method, target, body string) (int, map[string]any) {
+	t.Helper()
 
-	saveWebhookWorkflow(ctx, t, p, "/employees", models.WorkflowStatusPublished)
-
-	app := fiber.New()
-	ingest.NewWebhook(p, p.Jobs(), logger).Register(app)
-
-	resp, err := app.Test(httptest.NewRequestWithContext(ctx, http.MethodPost, "/webhooks/employees", strings.NewReader(`{"employee": "Ana"}`)))
+	resp, err := app.Test(httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body)))
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
 
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	var decoded map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&decoded))
 
-	var accepted struct {
-		Executions []string `json:"executions"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&accepted))
-	require.Len(t, accepted.Executions, 1)
+	return resp.StatusCode, decoded
+}
+
+func TestWorkflowLifecycleThroughAPI(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+	logger := slog.New(slog.DiscardHandler)
 
 	reg := registry.NewRegistry(logger)
 	reg.RegisterDefaultNodes()
+
+	e := engine.New(reg)
+
+	app := fiber.New()
+	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e), p.ExecutionContextRepository()).Register(app)
+	ingest.NewWebhook(p, p.Jobs(), logger).Register(app)
+
+	definition := `{
+		"name": "Employee Criado",
+		"description": "greets new employees",
+		"variables": {"team": "Vendas"},
+		"nodes": [
+			{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": true, "config": {"webhook_path": "/lifecycle"}},
+			{"id": "greet", "name": "greet", "type": "log", "category": "action", "enabled": true, "config": {"message": "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}}
+		],
+		"connections": [{"id": "trigger-greet", "source_port": "%s", "target_port": "greet:main"}]
+	}`
+
+	status, broken := request(t, app, http.MethodPost, "/workflows", fmt.Sprintf(definition, "trigger:output"))
+	require.Equal(t, http.StatusCreated, status)
+
+	status, problem := request(t, app, http.MethodPost, "/workflows/"+broken["id"].(string)+"/publish", "")
+	require.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Contains(t, problem["detail"], `output port "trigger:output" does not exist`)
+
+	status, created := request(t, app, http.MethodPost, "/workflows", fmt.Sprintf(definition, "trigger:success"))
+	require.Equal(t, http.StatusCreated, status)
+	assert.Equal(t, string(models.WorkflowStatusDraft), created["status"])
+
+	status, published := request(t, app, http.MethodPost, "/workflows/"+created["id"].(string)+"/publish", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, string(models.WorkflowStatusPublished), published["status"])
+
+	status, accepted := request(t, app, http.MethodPost, "/webhooks/lifecycle", `{"employee": "Ana"}`)
+	require.Equal(t, http.StatusAccepted, status)
+
+	executionID := accepted["executions"].([]any)[0].(string)
 
 	workerCtx, stop := context.WithCancel(ctx)
 	defer stop()
 
 	go func() {
-		_ = worker.New(p.Jobs(), p.WorkflowRepository(), engine.New(reg), logger, 10*time.Millisecond).Run(workerCtx)
+		_ = worker.New(p.Jobs(), p.WorkflowRepository(), e, logger, 10*time.Millisecond).Run(workerCtx)
 	}()
 
-	var execution *models.ExecutionContext
+	var execution map[string]any
 
 	require.Eventually(t, func() bool {
-		execution, err = p.ExecutionContextRepository().GetExecutionContext(ctx, accepted.Executions[0])
+		_, execution = request(t, app, http.MethodGet, "/executions/"+executionID, "")
 
-		return err == nil && execution.Status != models.ExecutionStatusRunning
+		return execution["status"] != string(models.ExecutionStatusRunning)
 	}, 10*time.Second, 20*time.Millisecond)
 
-	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status, execution.ErrorMessage)
-	assert.Equal(t, "hello Ana from Vendas", execution.NodeResults[greetNodeID].Data[messageKey])
+	assert.Equal(t, string(models.ExecutionStatusCompleted), execution["status"], execution["error_message"])
+	assert.Equal(t, "hello Ana from Vendas", execution["node_results"].(map[string]any)[greetNodeID].(map[string]any)["data"].(map[string]any)[messageKey])
 }

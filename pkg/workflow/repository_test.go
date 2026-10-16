@@ -48,6 +48,7 @@ func TestRepository_Create(t *testing.T) {
 
 	// Verify ID was generated
 	assert.NotEmpty(t, created.ID)
+	assert.Equal(t, created.ID, created.WorkflowGroupID)
 
 	// Verify timestamps were set
 	assert.False(t, created.CreatedAt.IsZero())

@@ -3,9 +3,12 @@ package persistence
 
 import (
 	"context"
+	"errors"
 
 	"github.com/dukex/operion/pkg/models"
 )
+
+var ErrExecutionNotFound = errors.New("execution context not found")
 
 type Persistence interface {
 	// Health check
