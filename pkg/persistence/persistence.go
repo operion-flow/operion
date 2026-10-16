@@ -8,7 +8,10 @@ import (
 	"github.com/dukex/operion/pkg/models"
 )
 
-var ErrExecutionNotFound = errors.New("execution context not found")
+var (
+	ErrExecutionNotFound       = errors.New("execution context not found")
+	ErrEventDefinitionNotFound = errors.New("event definition not found")
+)
 
 type Persistence interface {
 	// Health check
