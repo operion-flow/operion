@@ -123,17 +123,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Build API server
-        run: make ./bin/operion-api
-
-      - name: Build Worker
-        run: make ./bin/operion-worker
-
-      - name: Build Activator
-        run: make ./bin/operion-activator
-
-      - name: Build Source Manager
-        run: make ./bin/operion-source-manager
+      - name: Build operion
+        run: make ./bin/operion
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
