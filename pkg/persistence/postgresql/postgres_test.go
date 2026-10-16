@@ -26,7 +26,7 @@ func dropDb(ctx context.Context, t *testing.T, databaseURL string) {
 	require.NoError(t, err)
 
 	// Drop tables in reverse dependency order (children first, parents last)
-	for _, table := range []string{"schedules", "jobs", "input_coordination_states", "execution_contexts", "workflow_connections", "workflow_nodes", "workflows", "schema_migrations"} {
+	for _, table := range []string{"event_definitions", "schedules", "jobs", "input_coordination_states", "execution_contexts", "workflow_connections", "workflow_nodes", "workflows", "schema_migrations"} {
 		_, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table+" CASCADE")
 		require.NoError(t, err)
 	}

@@ -26,114 +26,78 @@ func NewMigrationManager(logger *slog.Logger, db *sql.DB, migrations map[int]str
 	}
 }
 
-// getTargetSchemaVersion returns the highest version number from the migrations map.
-func (m *MigrationManager) getTargetSchemaVersion() int {
-	maxVersion := 0
-	for version := range m.migrations {
-		if version > maxVersion {
-			maxVersion = version
-		}
-	}
-
-	return maxVersion
-}
-
-// RunMigrations handles database schema creation and updates.
+// RunMigrations applies, in version order, every migration not yet recorded in schema_migrations.
 func (m *MigrationManager) RunMigrations(ctx context.Context) error {
-	m.logger.InfoContext(ctx, "Starting database migrations")
-
-	err := m.createMigrationsTable(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create migrations table: %w", err)
-	}
-
-	currentVersion, err := m.getCurrentSchemaVersion(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current schema version: %w", err)
-	}
-
-	targetVersion := m.getTargetSchemaVersion()
-
-	m.logger.InfoContext(ctx, "Current schema version", "version", currentVersion)
-
-	if currentVersion < targetVersion {
-		err := m.applyMigrations(ctx, currentVersion)
-		if err != nil {
-			return fmt.Errorf("failed to apply migrations: %w", err)
-		}
-	}
-
-	m.logger.InfoContext(ctx, "Database migrations completed", "version", targetVersion)
-
-	return nil
-}
-
-func (m *MigrationManager) createMigrationsTable(ctx context.Context) error {
-	createMigrationsSQL := `
+	_, err := m.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
 			applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		);
-	`
-
-	_, err := m.db.ExecContext(ctx, createMigrationsSQL)
+		)
+	`)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "Failed to create schema_migrations table", "error", err)
-
 		return fmt.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
-	m.logger.InfoContext(ctx, "Schema migrations table created successfully")
+	applied, err := m.appliedVersions(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, version := range slices.Sorted(maps.Keys(m.migrations)) {
+		if applied[version] {
+			continue
+		}
+
+		if err := m.apply(ctx, version); err != nil {
+			return err
+		}
+
+		m.logger.InfoContext(ctx, "Migration applied", "version", version)
+	}
 
 	return nil
 }
 
-// getCurrentSchemaVersion returns the current schema version.
-func (m *MigrationManager) getCurrentSchemaVersion(ctx context.Context) (int, error) {
-	var version int
-
-	err := m.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&version)
+func (m *MigrationManager) appliedVersions(ctx context.Context) (map[int]bool, error) {
+	rows, err := m.db.QueryContext(ctx, "SELECT version FROM schema_migrations")
 	if err != nil {
-		return 0, fmt.Errorf("failed to query current schema version: %w", err)
+		return nil, fmt.Errorf("failed to read applied migrations: %w", err)
 	}
 
-	return version, nil
+	defer func() { _ = rows.Close() }()
+
+	applied := make(map[int]bool)
+
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return nil, fmt.Errorf("failed to read applied migrations: %w", err)
+		}
+
+		applied[version] = true
+	}
+
+	return applied, rows.Err()
 }
 
-// applyMigrations applies all migrations from the current version to the latest.
-func (m *MigrationManager) applyMigrations(ctx context.Context, fromVersion int) error {
-	for _, version := range slices.Sorted(maps.Keys(m.migrations)) {
-		migration := m.migrations[version]
-		if version > fromVersion {
-			m.logger.InfoContext(ctx, "Applying migration", "version", version)
+func (m *MigrationManager) apply(ctx context.Context, version int) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for migration %d: %w", version, err)
+	}
 
-			transaction, err := m.db.BeginTx(ctx, nil)
-			if err != nil {
-				return fmt.Errorf("failed to begin transaction for migration %d: %w", version, err)
-			}
+	defer func() { _ = tx.Rollback() }()
 
-			_, err = transaction.ExecContext(ctx, migration)
-			if err != nil {
-				_ = transaction.Rollback()
+	if _, err := tx.ExecContext(ctx, m.migrations[version]); err != nil {
+		return fmt.Errorf("failed to execute migration %d: %w", version, err)
+	}
 
-				return fmt.Errorf("failed to execute migration %d: %w", version, err)
-			}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
+		return fmt.Errorf("failed to record migration %d: %w", version, err)
+	}
 
-			// Record migration
-			_, err = transaction.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version)
-			if err != nil {
-				_ = transaction.Rollback()
-
-				return fmt.Errorf("failed to record migration %d: %w", version, err)
-			}
-
-			err = transaction.Commit()
-			if err != nil {
-				return fmt.Errorf("failed to commit migration %d: %w", version, err)
-			}
-
-			m.logger.InfoContext(ctx, "Migration applied successfully", "version", version)
-		}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit migration %d: %w", version, err)
 	}
 
 	return nil

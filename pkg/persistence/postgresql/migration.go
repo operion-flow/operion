@@ -129,5 +129,21 @@ func migrations() map[int]string {
 		4: `
 			DROP TABLE IF EXISTS input_coordination_states;
 		`,
+		5: `
+			CREATE TABLE event_definitions (
+				key VARCHAR(255) PRIMARY KEY,
+				name VARCHAR(255) NOT NULL,
+				description TEXT NOT NULL DEFAULT '',
+				topic VARCHAR(255) NOT NULL,
+				format VARCHAR(50) NOT NULL,
+				schema JSONB,
+				tenant_from VARCHAR(50) NOT NULL,
+				tenant_key VARCHAR(255) NOT NULL,
+				created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+				updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+			);
+
+			CREATE INDEX idx_event_definitions_topic ON event_definitions(topic);
+		`,
 	}
 }
