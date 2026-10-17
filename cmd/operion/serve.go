@@ -16,6 +16,7 @@ import (
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/scheduler"
+	"github.com/dukex/operion/pkg/tracer"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/dukex/operion/pkg/workflow"
 	"github.com/gofiber/fiber/v3"
@@ -65,6 +66,15 @@ func serve(ctx context.Context, options serveOptions) error {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" {
+		provider, err := tracer.InitTracer(ctx, "operion")
+		if err != nil {
+			return err
+		}
+
+		defer func() { _ = provider.Shutdown(context.WithoutCancel(ctx)) }()
+	}
 
 	store, err := postgresql.NewPersistence(ctx, logger, options.databaseURL)
 	if err != nil {
