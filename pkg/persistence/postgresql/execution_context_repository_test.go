@@ -195,7 +195,7 @@ func TestExecutionContextRepository_GetExecutionsByWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetExecutionsByWorkflow
-	executions, err := execRepo.GetExecutionsByWorkflow(ctx, workflow1.ID)
+	executions, err := execRepo.GetExecutionsByWorkflow(ctx, workflow1.ID, 10)
 	require.NoError(t, err)
 
 	assert.Len(t, executions, 2)
@@ -204,8 +204,13 @@ func TestExecutionContextRepository_GetExecutionsByWorkflow(t *testing.T) {
 	assert.Equal(t, execCtx2.ID, executions[0].ID)
 	assert.Equal(t, execCtx1.ID, executions[1].ID)
 
+	newest, err := execRepo.GetExecutionsByWorkflow(ctx, workflow1.ID, 1)
+	require.NoError(t, err)
+	require.Len(t, newest, 1)
+	assert.Equal(t, execCtx2.ID, newest[0].ID)
+
 	// Test with workflow that has one execution
-	executions, err = execRepo.GetExecutionsByWorkflow(ctx, workflow2.ID)
+	executions, err = execRepo.GetExecutionsByWorkflow(ctx, workflow2.ID, 10)
 	require.NoError(t, err)
 
 	assert.Len(t, executions, 1)
@@ -218,7 +223,7 @@ func TestExecutionContextRepository_GetExecutionsByWorkflow(t *testing.T) {
 	err = p.WorkflowRepository().Save(ctx, workflow3)
 	require.NoError(t, err)
 
-	executions, err = execRepo.GetExecutionsByWorkflow(ctx, workflow3.ID)
+	executions, err = execRepo.GetExecutionsByWorkflow(ctx, workflow3.ID, 10)
 	require.NoError(t, err)
 
 	assert.Len(t, executions, 0)

@@ -118,16 +118,17 @@ func (ecr *ExecutionContextRepository) UpdateExecutionContext(ctx context.Contex
 }
 
 // GetExecutionsByWorkflow retrieves all execution contexts for a specific workflow.
-func (ecr *ExecutionContextRepository) GetExecutionsByWorkflow(ctx context.Context, workflowID string) ([]*models.ExecutionContext, error) {
+func (ecr *ExecutionContextRepository) GetExecutionsByWorkflow(ctx context.Context, workflowID string, limit int) ([]*models.ExecutionContext, error) {
 	query := `
 		SELECT id, workflow_id, status, node_results, variables, 
 			   trigger_data, metadata, error_message, created_at, completed_at
 		FROM execution_contexts
 		WHERE workflow_id = $1
 		ORDER BY created_at DESC
+		LIMIT $2
 	`
 
-	rows, err := ecr.db.QueryContext(ctx, query, workflowID)
+	rows, err := ecr.db.QueryContext(ctx, query, workflowID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query execution contexts: %w", err)
 	}
