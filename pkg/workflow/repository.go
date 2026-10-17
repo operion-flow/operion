@@ -43,8 +43,8 @@ func (r *Repository) HealthCheck(ctx context.Context) (string, bool) {
 }
 
 // FetchAll retrieves all workflows.
-func (r *Repository) FetchAll(ctx context.Context) ([]*models.Workflow, error) {
-	workflows, err := r.persistence.WorkflowRepository().GetAll(ctx)
+func (r *Repository) FetchAll(ctx context.Context, tenantID string) ([]*models.Workflow, error) {
+	workflows, err := r.persistence.WorkflowRepository().GetAll(ctx, tenantID)
 	if err != nil {
 		return make([]*models.Workflow, 0), err
 	}

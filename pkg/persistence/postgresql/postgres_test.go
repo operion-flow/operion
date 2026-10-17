@@ -332,10 +332,32 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	retrieved, err := p.WorkflowRepository().GetAll(ctx)
+	retrieved, err := p.WorkflowRepository().GetAll(ctx, "")
 	require.NoError(t, err)
 
 	assert.Len(t, retrieved, len(workflows))
+}
+
+func TestWorkflowRepositoryGetAllFiltersByTenant(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+
+	for _, tenant := range []string{acmeTenant, acmeTenant, "globex"} {
+		require.NoError(t, p.WorkflowRepository().Save(ctx, &models.Workflow{
+			Name:        "tenant workflow",
+			Description: "belongs to " + tenant,
+			Status:      models.WorkflowStatusDraft,
+			TenantID:    tenant,
+		}))
+	}
+
+	acme, err := p.WorkflowRepository().GetAll(ctx, acmeTenant)
+	require.NoError(t, err)
+	require.Len(t, acme, 2)
+	assert.Equal(t, acmeTenant, acme[0].TenantID)
+
+	globex, err := p.WorkflowRepository().GetAll(ctx, "globex")
+	require.NoError(t, err)
+	assert.Len(t, globex, 1)
 }
 
 func TestNewPersistence_DeleteWorkflow(t *testing.T) {

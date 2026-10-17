@@ -51,16 +51,16 @@ DATABASE_URL="postgres://localhost:5432/operion?sslmode=disable" ./operion serve
 Create the workflow, publish it, call its webhook and read the execution:
 
 ```bash
-curl -s -X POST localhost:9091/workflows -H 'Content-Type: application/json' -d @workflow.json
-# {"id": "<workflow-id>", "status": "draft", ...}
+curl -s -X POST localhost:9091/workflows -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' -d @workflow.json
+# {"id": "<workflow-id>", "status": "draft", "tenant_id": "acme", ...}
 
-curl -s -X POST localhost:9091/workflows/<workflow-id>/publish
+curl -s -X POST localhost:9091/workflows/<workflow-id>/publish -H 'X-Tenant-Id: acme'
 # {"id": "<workflow-id>", "status": "published", ...}
 
-curl -s -X POST localhost:9091/webhooks/greet -H 'Content-Type: application/json' -d '{"name": "Ana"}'
+curl -s -X POST localhost:9091/webhooks/acme/greet -H 'Content-Type: application/json' -d '{"name": "Ana"}'
 # {"executions": ["<execution-id>"]}
 
-curl -s localhost:9091/executions/<execution-id>
+curl -s localhost:9091/executions/<execution-id> -H 'X-Tenant-Id: acme'
 # {"id": "<execution-id>", "status": "completed", "node_results": {...}, ...}
 ```
 
@@ -82,17 +82,26 @@ curl -s localhost:9091/executions/<execution-id>
 | `--port` | `PORT` | `9091` | HTTP port |
 | `--poll-interval` | | `1s` | How long the worker and the scheduler wait when nothing is due |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:kafka` workflows; Kafka is off when empty |
+| `--kafka-group` | `KAFKA_GROUP` | `operion` | Kafka consumer group |
+
+Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
 ## HTTP API
 
+Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` header. A request without it is a 400, and another tenant's workflow or execution is a 404. Authentication will replace the header.
+
 | Method and path | Description |
 |---|---|
-| `POST /workflows` | Create a workflow. It is always stored as a draft |
-| `GET /workflows` | List workflows |
+| `POST /workflows` | Create a workflow for the tenant. It is always stored as a draft |
+| `GET /workflows` | List the tenant's workflows |
 | `GET /workflows/:id` | Get a workflow |
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
+| `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
-| `POST /webhooks/<path>` | Start one execution per published workflow whose webhook trigger listens on `<path>` |
+| `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
+| `GET /catalog/events` | List the events tenants can build workflows on |
+| `PUT /platform/event-definitions/:key`, `GET /platform/event-definitions/:key` | Register and read an event definition (platform operator) |
 | `GET /livez`, `GET /readyz` | Health checks |
 
 Errors are returned as `application/problem+json`.
