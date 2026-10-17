@@ -32,6 +32,7 @@ const (
 	statusKey   = "status"
 	jsonType    = "application/json"
 	webhookPath = "/employees"
+	tenant      = "acme"
 )
 
 var (
@@ -205,6 +206,7 @@ func fetch(ctx context.Context, method, target string, body any) (int, map[strin
 	}
 
 	req.Header.Set("Content-Type", jsonType)
+	req.Header.Set("X-Tenant-Id", tenant)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -294,7 +296,7 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, published)
 	assert.Equal(t, "published", published[statusKey])
 
-	status, accepted := call(t, http.MethodPost, base+"/webhooks"+webhookPath, map[string]any{"employee": "Ana"})
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{"employee": "Ana"})
 	require.Equal(t, http.StatusAccepted, status, accepted)
 
 	executionID := accepted["executions"].([]any)[0].(string)

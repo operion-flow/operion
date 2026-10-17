@@ -145,5 +145,10 @@ func migrations() map[int]string {
 
 			CREATE INDEX idx_event_definitions_topic ON event_definitions(topic);
 		`,
+		6: `
+			ALTER TABLE workflows ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT '';
+
+			CREATE INDEX idx_workflows_tenant_id ON workflows(tenant_id);
+		`,
 	}
 }
