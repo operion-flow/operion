@@ -46,6 +46,6 @@ type ExecutionContextRepository interface {
 	SaveExecutionContext(ctx context.Context, execCtx *models.ExecutionContext) error
 	GetExecutionContext(ctx context.Context, executionID string) (*models.ExecutionContext, error)
 	UpdateExecutionContext(ctx context.Context, execCtx *models.ExecutionContext) error
-	GetExecutionsByWorkflow(ctx context.Context, workflowID string) ([]*models.ExecutionContext, error)
+	GetExecutionsByWorkflow(ctx context.Context, workflowID string, limit int) ([]*models.ExecutionContext, error)
 	GetExecutionsByStatus(ctx context.Context, status models.ExecutionStatus) ([]*models.ExecutionContext, error)
 }

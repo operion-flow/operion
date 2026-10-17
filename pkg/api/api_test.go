@@ -76,6 +76,27 @@ func (f fakePublisher) PublishWorkflow(_ context.Context, id string) (*models.Wo
 type fakeExecutions struct {
 	executions map[string]*models.ExecutionContext
 	err        error
+	limits     *[]int
+}
+
+func (f fakeExecutions) GetExecutionsByWorkflow(_ context.Context, workflowID string, limit int) ([]*models.ExecutionContext, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	if f.limits != nil {
+		*f.limits = append(*f.limits, limit)
+	}
+
+	var found []*models.ExecutionContext
+
+	for _, execution := range f.executions {
+		if execution.WorkflowID == workflowID {
+			found = append(found, execution)
+		}
+	}
+
+	return found, nil
 }
 
 func (f fakeExecutions) GetExecutionContext(_ context.Context, id string) (*models.ExecutionContext, error) {
@@ -159,7 +180,7 @@ func newServer() server {
 	return server{
 		workflows: &fakeWorkflows{workflows: map[string]*models.Workflow{"wf": {ID: "wf", Name: "Employee Criado"}}},
 		executions: fakeExecutions{executions: map[string]*models.ExecutionContext{
-			"exec": {ID: "exec", Status: models.ExecutionStatusCompleted},
+			"exec": {ID: "exec", WorkflowID: "wf", Status: models.ExecutionStatusCompleted},
 		}},
 		catalog: &fakeCatalog{definitions: map[string]*models.EventDefinition{}},
 	}
@@ -341,5 +362,44 @@ func TestCatalogStoreErrors(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, status)
 
 	status, _ = s.do(t, http.MethodGet, "/catalog/events", "")
+	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+func TestListExecutionsOfAWorkflow(t *testing.T) {
+	s := newServer()
+
+	var limits []int
+
+	s.executions.limits = &limits
+
+	status, body := s.do(t, http.MethodGet, "/workflows/wf/executions", "")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, body["items"], 1)
+	assert.Equal(t, "exec", body["items"].([]any)[0].(map[string]any)["id"])
+
+	status, _ = s.do(t, http.MethodGet, "/workflows/wf/executions?limit=5", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []int{50, 5}, limits)
+
+	s.workflows.workflows["empty"] = &models.Workflow{ID: "empty"}
+	status, body = s.do(t, http.MethodGet, "/workflows/empty/executions", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, body["items"])
+}
+
+func TestListExecutionsRejectsBadRequests(t *testing.T) {
+	s := newServer()
+
+	status, _ := s.do(t, http.MethodGet, "/workflows/missing/executions", "")
+	assert.Equal(t, http.StatusNotFound, status)
+
+	for _, limit := range []string{"0", "501", "ten"} {
+		status, body := s.do(t, http.MethodGet, "/workflows/wf/executions?limit="+limit, "")
+		assert.Equal(t, http.StatusBadRequest, status, limit)
+		assert.Contains(t, body["detail"], "limit must be a number between 1 and 500", limit)
+	}
+
+	s.executions.err = errStore
+	status, _ = s.do(t, http.MethodGet, "/workflows/wf/executions", "")
 	assert.Equal(t, http.StatusInternalServerError, status)
 }

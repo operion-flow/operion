@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/persistence"
@@ -11,6 +13,11 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/moogar0880/problems"
+)
+
+const (
+	defaultExecutionsLimit = 50
+	maxExecutionsLimit     = 500
 )
 
 type Workflows interface {
@@ -25,6 +32,7 @@ type Publisher interface {
 
 type Executions interface {
 	GetExecutionContext(ctx context.Context, executionID string) (*models.ExecutionContext, error)
+	GetExecutionsByWorkflow(ctx context.Context, workflowID string, limit int) ([]*models.ExecutionContext, error)
 }
 
 type Catalog interface {
@@ -56,6 +64,7 @@ func (a *API) Register(app *fiber.App) {
 	app.Post("/workflows", a.createWorkflow)
 	app.Get("/workflows/:id", a.getWorkflow)
 	app.Post("/workflows/:id/publish", a.publishWorkflow)
+	app.Get("/workflows/:id/executions", a.listExecutions)
 	app.Get("/executions/:id", a.getExecution)
 	app.Put("/platform/event-definitions/:key", a.saveEventDefinition)
 	app.Get("/platform/event-definitions/:key", a.getEventDefinition)
@@ -107,6 +116,35 @@ func (a *API) publishWorkflow(c fiber.Ctx) error {
 	}
 
 	return c.JSON(published)
+}
+
+func (a *API) listExecutions(c fiber.Ctx) error {
+	wf, err := a.workflows.FetchByID(c.Context(), c.Params("id"))
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	limit := defaultExecutionsLimit
+
+	if raw := c.Query("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxExecutionsLimit {
+			return problem(c, fiber.StatusBadRequest, fmt.Errorf("limit must be a number between 1 and %d", maxExecutionsLimit))
+		}
+
+		limit = parsed
+	}
+
+	executions, err := a.executions.GetExecutionsByWorkflow(c.Context(), wf.ID, limit)
+	if err != nil {
+		return problem(c, fiber.StatusInternalServerError, err)
+	}
+
+	if executions == nil {
+		executions = []*models.ExecutionContext{}
+	}
+
+	return c.JSON(executions)
 }
 
 func (a *API) getExecution(c fiber.Ctx) error {
