@@ -14,6 +14,7 @@ import (
 const (
 	triggerInputPort = "external"
 	errorOutputPort  = "error"
+	ResumePort       = "resume"
 )
 
 type NodeCreator interface {
@@ -30,6 +31,12 @@ func TriggerActivation(triggerNodeID string, data map[string]any) Activation {
 	return Activation{NodeID: triggerNodeID, Port: triggerInputPort, Data: data}
 }
 
+type Deferred struct {
+	Activation
+
+	RunAt time.Time
+}
+
 type Engine struct {
 	nodes NodeCreator
 }
@@ -38,9 +45,11 @@ func New(nodes NodeCreator) *Engine {
 	return &Engine{nodes: nodes}
 }
 
-func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *models.ExecutionContext, start Activation) error {
+func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *models.ExecutionContext, start Activation) ([]Deferred, error) {
 	g := newGraph(workflow)
 	queue := []Activation{start}
+
+	var deferred []Deferred
 
 	if execution.NodeResults == nil {
 		execution.NodeResults = make(map[string]models.NodeResult)
@@ -48,45 +57,64 @@ func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *
 
 	for len(queue) > 0 {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 
 		current := queue[0]
 		queue = queue[1:]
 
-		next, err := e.step(ctx, g, execution, current)
+		next, later, err := e.step(ctx, g, execution, current)
 		if err != nil {
 			finish(execution, models.ExecutionStatusFailed, err.Error())
 
-			return nil
+			return nil, nil
 		}
 
 		queue = append(queue, next...)
+		deferred = append(deferred, later...)
 	}
 
-	finish(execution, models.ExecutionStatusCompleted, "")
+	if len(deferred) == 0 {
+		finish(execution, models.ExecutionStatusCompleted, "")
+	}
 
-	return nil
+	return deferred, nil
 }
 
-func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionContext, current Activation) ([]Activation, error) {
+func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionContext, current Activation) ([]Activation, []Deferred, error) {
 	node, ok := g.nodes[current.NodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %q not found in workflow", current.NodeID)
+		return nil, nil, fmt.Errorf("node %q not found in workflow", current.NodeID)
 	}
 
 	instance, err := e.nodes.CreateNode(ctx, node.Type, node.ID, node.Config)
 	if err != nil {
-		return nil, fmt.Errorf("node %q: %w", node.ID, err)
+		return nil, nil, fmt.Errorf("node %q: %w", node.ID, err)
 	}
 
 	inputs := map[string]models.NodeResult{
 		current.Port: {NodeID: node.ID, Data: current.Data, Status: string(models.NodeStatusSuccess)},
 	}
 
+	if waiter, ok := instance.(protocol.Waiter); ok && current.Port != ResumePort {
+		runAt, err := waiter.WaitUntil(*execution, inputs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("node %q: %w", node.ID, err)
+		}
+
+		execution.NodeResults[node.ID] = models.NodeResult{
+			NodeID:    node.ID,
+			Data:      map[string]any{"resume_at": runAt.UTC().Format(time.RFC3339)},
+			Status:    string(models.NodeStatusWaiting),
+			Timestamp: time.Now().UTC(),
+		}
+
+		return nil, []Deferred{{Activation: Activation{NodeID: node.ID, Port: ResumePort, Data: current.Data}, RunAt: runAt}}, nil
+	}
+
 	outputs, err := instance.Execute(*execution, inputs)
 	if err != nil {
-		return nil, fmt.Errorf("node %q: %w", node.ID, err)
+		return nil, nil, fmt.Errorf("node %q: %w", node.ID, err)
 	}
 
 	var next []Activation
@@ -99,7 +127,7 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 
 		targets := g.targets[models.MakePortID(node.ID, port)]
 		if port == errorOutputPort && len(targets) == 0 {
-			return nil, fmt.Errorf("node %q: %s", node.ID, errorMessage(result))
+			return nil, nil, fmt.Errorf("node %q: %s", node.ID, errorMessage(result))
 		}
 
 		for _, target := range targets {
@@ -107,7 +135,7 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 		}
 	}
 
-	return next, nil
+	return next, nil, nil
 }
 
 func finish(execution *models.ExecutionContext, status models.ExecutionStatus, message string) {

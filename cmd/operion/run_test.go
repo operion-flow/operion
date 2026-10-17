@@ -145,3 +145,29 @@ func TestRunStopsOnCancelledContextAndWriteErrors(t *testing.T) {
 	require.ErrorIs(t, runWorkflow(ctx, workflow, event, "", &bytes.Buffer{}), context.Canceled)
 	require.ErrorIs(t, runWorkflow(t.Context(), workflow, event, "", failingWriter{}), errWrite)
 }
+
+func TestRunSkipsWaitsAndFinishesTheExecution(t *testing.T) {
+	workflow := writeFile(t, "workflow.json", `{
+  "id": "later",
+  "name": "later",
+  "nodes": [
+    {"id": "trigger", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/hook"}},
+    {"id": "hold", "type": "wait", "category": "action", "config": {"duration": "720h"}},
+    {"id": "greet", "type": "transform", "category": "action", "config": {"expression": "hello {{.node_results.trigger.body.name}}"}}
+  ],
+  "connections": [
+    {"id": "c1", "source_port": "trigger:success", "target_port": "hold:main"},
+    {"id": "c2", "source_port": "hold:success", "target_port": "greet:main"}
+  ]
+}`)
+	event := writeFile(t, "event.json", `{"body": {"name": "Ana"}}`)
+
+	execution, err := run(t, "--workflow", workflow, "--event", event)
+
+	require.NoError(t, err)
+	assert.Equal(t, "completed", execution["status"])
+
+	results := execution["node_results"].(map[string]any)
+	assert.Equal(t, "success", results["hold"].(map[string]any)["status"])
+	assert.Equal(t, "hello Ana", results["greet"].(map[string]any)["data"].(map[string]any)["result"])
+}

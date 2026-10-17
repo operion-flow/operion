@@ -8,6 +8,7 @@ import (
 	switchnode "github.com/dukex/operion/pkg/nodes/switch"
 	"github.com/dukex/operion/pkg/nodes/transform"
 	"github.com/dukex/operion/pkg/nodes/trigger"
+	"github.com/dukex/operion/pkg/nodes/wait"
 )
 
 // RegisterDefaultNodes registers all built-in node factories with the registry.
@@ -26,6 +27,8 @@ func (r *Registry) RegisterDefaultNodes() {
 
 	// Register Switch node
 	r.RegisterNode(switchnode.NewSwitchNodeFactory())
+	r.RegisterNode(wait.NewWaitFactory())
+	r.RegisterNode(wait.NewWaitUntilFactory())
 
 	// Register Trigger nodes
 	r.RegisterNode(trigger.NewWebhookTriggerNodeFactory())
