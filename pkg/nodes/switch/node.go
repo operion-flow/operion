@@ -205,16 +205,6 @@ func (n *SwitchNode) OutputPorts() []models.OutputPort {
 	return ports
 }
 
-// InputRequirements returns the input coordination requirements for the switch node.
-func (n *SwitchNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{InputPortMain},
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *SwitchNode) Validate(config map[string]any) error {
 	if _, ok := config["value"]; !ok {

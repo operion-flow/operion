@@ -20,7 +20,6 @@ func TestRegisterDefaultNodes(t *testing.T) {
 		"log",
 		"conditional",
 		"switch",
-		"merge",
 		"trigger:webhook",
 		"trigger:scheduler",
 		"trigger:kafka",

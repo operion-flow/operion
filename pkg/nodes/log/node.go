@@ -180,16 +180,6 @@ func (n *LogNode) OutputPorts() []models.OutputPort {
 	}
 }
 
-// InputRequirements returns the input coordination requirements for the log node.
-func (n *LogNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{InputPortMain},
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *LogNode) Validate(config map[string]any) error {
 	// Validate message is present

@@ -126,6 +126,9 @@ func migrations() map[int]string {
 
 			CREATE INDEX idx_schedules_next_run_at ON schedules(next_run_at);
 		`,
+		4: `
+			DROP TABLE IF EXISTS input_coordination_states;
+		`,
 		5: `
 			CREATE TABLE event_definitions (
 				key VARCHAR(255) PRIMARY KEY,

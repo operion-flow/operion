@@ -341,16 +341,6 @@ func (n *HTTPRequestNode) OutputPorts() []models.OutputPort {
 	}
 }
 
-// InputRequirements returns the input coordination requirements for the HTTP request node.
-func (n *HTTPRequestNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{InputPortMain},
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *HTTPRequestNode) Validate(config map[string]any) error {
 	if _, ok := config["url"]; !ok {

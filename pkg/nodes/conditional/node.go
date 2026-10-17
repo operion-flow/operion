@@ -192,16 +192,6 @@ func (n *ConditionalNode) OutputPorts() []models.OutputPort {
 	}
 }
 
-// InputRequirements returns the input coordination requirements for the conditional node.
-func (n *ConditionalNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{InputPortMain},
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *ConditionalNode) Validate(config map[string]any) error {
 	if _, ok := config["condition"]; !ok {

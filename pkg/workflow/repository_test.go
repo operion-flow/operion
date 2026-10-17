@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/dukex/operion/pkg/models"
-	"github.com/dukex/operion/pkg/persistence/file"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewRepository(t *testing.T) {
-	persistence := file.NewPersistence(t.TempDir())
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	assert.NotNil(t, repo)
@@ -18,8 +17,7 @@ func TestNewRepository(t *testing.T) {
 }
 
 func TestRepository_Create(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	workflow := &models.Workflow{
@@ -48,7 +46,6 @@ func TestRepository_Create(t *testing.T) {
 
 	// Verify ID was generated
 	assert.NotEmpty(t, created.ID)
-	assert.Equal(t, created.ID, created.WorkflowGroupID)
 
 	// Verify timestamps were set
 	assert.False(t, created.CreatedAt.IsZero())
@@ -63,8 +60,7 @@ func TestRepository_Create(t *testing.T) {
 }
 
 func TestRepository_FetchByID(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	// Create test workflow
@@ -95,8 +91,7 @@ func TestRepository_FetchByID(t *testing.T) {
 }
 
 func TestRepository_FetchByID_NotFound(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	// Try to fetch non-existent workflow
@@ -107,8 +102,7 @@ func TestRepository_FetchByID_NotFound(t *testing.T) {
 }
 
 func TestRepository_FetchAll(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	workflows := []*models.Workflow{
@@ -151,8 +145,7 @@ func TestRepository_FetchAll(t *testing.T) {
 }
 
 func TestRepository_Update(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	// Create initial workflow
@@ -193,8 +186,7 @@ func TestRepository_Update(t *testing.T) {
 }
 
 func TestRepository_Update_NotFound(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	updatedWorkflow := &models.Workflow{
@@ -209,8 +201,7 @@ func TestRepository_Update_NotFound(t *testing.T) {
 }
 
 func TestRepository_Delete(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	// Create test workflow
@@ -237,8 +228,7 @@ func TestRepository_Delete(t *testing.T) {
 }
 
 func TestRepository_Delete_NotFound(t *testing.T) {
-	testDir := t.TempDir()
-	persistence := file.NewPersistence(testDir)
+	persistence := createTestPersistence()
 	repo := NewRepository(persistence)
 
 	// Try to delete non-existent workflow

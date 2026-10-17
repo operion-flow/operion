@@ -128,16 +128,6 @@ func (n *TransformNode) OutputPorts() []models.OutputPort {
 	}
 }
 
-// InputRequirements returns the input coordination requirements for the transform node.
-func (n *TransformNode) InputRequirements() models.InputRequirements {
-	return models.InputRequirements{
-		RequiredPorts: []string{InputPortMain},
-		OptionalPorts: []string{},
-		WaitMode:      models.WaitModeAll,
-		Timeout:       nil,
-	}
-}
-
 // Validate validates the node configuration.
 func (n *TransformNode) Validate(config map[string]any) error {
 	if _, ok := config["expression"]; !ok {
