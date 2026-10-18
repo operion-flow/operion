@@ -23,6 +23,7 @@ func TestRegisterDefaultNodes(t *testing.T) {
 		"trigger:webhook",
 		"trigger:scheduler",
 		"trigger:kafka",
+		"trigger:event",
 	}
 
 	if len(registry.nodeFactories) != len(expectedNodes) {
