@@ -9,4 +9,5 @@ type Job struct {
 	Port        string
 	Data        map[string]any
 	RunAt       time.Time
+	Attempt     int
 }

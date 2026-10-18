@@ -22,9 +22,10 @@ type NodeCreator interface {
 }
 
 type Activation struct {
-	NodeID string
-	Port   string
-	Data   map[string]any
+	NodeID  string
+	Port    string
+	Data    map[string]any
+	Attempt int
 }
 
 func TriggerActivation(triggerNodeID string, data map[string]any) Activation {
@@ -113,6 +114,11 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 	}
 
 	outputs, err := instance.Execute(*execution, inputs)
+
+	if retry, ok := retryLater(execution, node, current, failure(outputs, err)); ok {
+		return nil, []Deferred{retry}, nil
+	}
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("node %q: %w", node.ID, err)
 	}

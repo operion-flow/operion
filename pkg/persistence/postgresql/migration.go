@@ -145,5 +145,9 @@ func migrations() map[int]string {
 
 			CREATE INDEX idx_event_definitions_topic ON event_definitions(topic);
 		`,
+		7: `
+			ALTER TABLE workflow_nodes ADD COLUMN retry JSONB;
+			ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
+		`,
 	}
 }

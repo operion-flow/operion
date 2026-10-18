@@ -40,6 +40,13 @@ type WorkflowNode struct {
 	SourceID   *string        `json:"source_id,omitempty"`   // For trigger nodes only
 	ProviderID *string        `json:"provider_id,omitempty"` // For trigger nodes only
 	EventType  *string        `json:"event_type,omitempty"`  // For trigger nodes only
+	Retry      *RetryPolicy   `json:"retry,omitempty"`
+}
+
+type RetryPolicy struct {
+	Attempts int    `json:"attempts"`
+	Initial  string `json:"initial"`
+	Max      string `json:"max"`
 }
 
 // Helper methods for category checking.
@@ -64,9 +71,10 @@ type NodeResult struct {
 type NodeStatus string
 
 const (
-	NodeStatusPending NodeStatus = "pending"
-	NodeStatusRunning NodeStatus = "running"
-	NodeStatusSuccess NodeStatus = "success"
-	NodeStatusError   NodeStatus = "error"
-	NodeStatusWaiting NodeStatus = "waiting"
+	NodeStatusPending  NodeStatus = "pending"
+	NodeStatusRunning  NodeStatus = "running"
+	NodeStatusSuccess  NodeStatus = "success"
+	NodeStatusError    NodeStatus = "error"
+	NodeStatusWaiting  NodeStatus = "waiting"
+	NodeStatusRetrying NodeStatus = "retrying"
 )
