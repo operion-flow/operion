@@ -18,9 +18,8 @@ import (
 var (
 	kafkaNamespace = uuid.MustParse("6f1c3d2e-8a4b-4c5d-9e6f-7a8b9c0d1e2f")
 
-	errUnsupportedFormat = errors.New("event format is not supported yet")
-	errNotAJSONObject    = errors.New("payload is not a JSON object")
-	errTenantMissing     = errors.New("tenant not found in the event")
+	errNotAJSONObject = errors.New("payload is not a JSON object")
+	errTenantMissing  = errors.New("tenant not found in the event")
 )
 
 type KafkaTriggers interface {
@@ -46,11 +45,12 @@ type Kafka struct {
 	triggers KafkaTriggers
 	catalog  EventCatalog
 	jobs     Starter
+	decoder  *decoder
 	logger   *slog.Logger
 }
 
-func NewKafka(triggers KafkaTriggers, catalog EventCatalog, jobs Starter, logger *slog.Logger) *Kafka {
-	return &Kafka{triggers: triggers, catalog: catalog, jobs: jobs, logger: logger}
+func NewKafka(triggers KafkaTriggers, catalog EventCatalog, jobs Starter, registry SchemaRegistry, logger *slog.Logger) *Kafka {
+	return &Kafka{triggers: triggers, catalog: catalog, jobs: jobs, decoder: newDecoder(registry), logger: logger}
 }
 
 func (k *Kafka) Handle(ctx context.Context, message KafkaMessage) error {
@@ -78,7 +78,11 @@ func (k *Kafka) Handle(ctx context.Context, message KafkaMessage) error {
 }
 
 func (k *Kafka) handleEvent(ctx context.Context, message KafkaMessage, definition *models.EventDefinition) error {
-	tenant, data, err := eventData(definition, message)
+	tenant, data, err := k.eventData(ctx, definition, message)
+	if errors.Is(err, errRegistryUnavailable) {
+		return err
+	}
+
 	if err != nil {
 		k.logger.WarnContext(ctx, "event skipped",
 			"event", definition.Key,
@@ -152,13 +156,14 @@ func kafkaData(message KafkaMessage) map[string]any {
 	return data
 }
 
-func eventData(definition *models.EventDefinition, message KafkaMessage) (string, map[string]any, error) {
-	if definition.Format != models.EventFormatJSON {
-		return "", nil, fmt.Errorf("%w: %s", errUnsupportedFormat, definition.Format)
+func (k *Kafka) eventData(ctx context.Context, definition *models.EventDefinition, message KafkaMessage) (string, map[string]any, error) {
+	value, err := k.decoder.decode(ctx, definition.Format, message.Value)
+	if err != nil {
+		return "", nil, err
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal(message.Value, &payload); err != nil {
+	if err := json.Unmarshal(value, &payload); err != nil {
 		return "", nil, fmt.Errorf("%w: %w", errNotAJSONObject, err)
 	}
 

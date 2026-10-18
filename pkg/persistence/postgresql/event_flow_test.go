@@ -138,7 +138,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	status, _ = request(t, app, http.MethodPost, "/workflows/"+workflowID+"/publish", "")
 	require.Equal(t, http.StatusOK, status)
 
-	kafka := ingest.NewKafka(p, p.EventDefinitions(), p.Jobs(), logger)
+	kafka := ingest.NewKafka(p, p.EventDefinitions(), p.Jobs(), ingest.SchemaRegistry{}, logger)
 	message := func(offset int64, company string) ingest.KafkaMessage {
 		return ingest.KafkaMessage{
 			Topic:     employeeCreatedTopic,
