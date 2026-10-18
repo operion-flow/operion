@@ -92,6 +92,7 @@ curl -s localhost:9091/executions/<execution-id>
 | `GET /workflows/:id` | Get a workflow |
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
 | `GET /executions/:id` | Get an execution with its status and node results |
+| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. Returns 409 when the node is not waiting |
 | `POST /webhooks/<path>` | Start one execution per published workflow whose webhook trigger listens on `<path>` |
 | `GET /livez`, `GET /readyz` | Health checks |
 

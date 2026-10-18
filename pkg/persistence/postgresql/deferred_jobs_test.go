@@ -9,6 +9,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/google/uuid"
@@ -131,9 +132,8 @@ func TestJobsProcessNextDropsQueuedJobsOfAFailedExecution(t *testing.T) {
 	assert.Empty(t, pendingJobs(ctx, t, databaseURL, execution.ID))
 }
 
-func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {
-	p, ctx, databaseURL := setupTestDB(t)
-	logger := slog.New(slog.DiscardHandler)
+func startWaitingExecution(ctx context.Context, t *testing.T, p *postgresql.Persistence, message string) string {
+	t.Helper()
 
 	workflowID := uuid.NewString()
 	require.NoError(t, p.WorkflowRepository().Save(ctx, &models.Workflow{
@@ -145,7 +145,7 @@ func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {
 		Nodes: []*models.WorkflowNode{
 			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/later"}},
 			{ID: holdNodeID, Name: holdNodeID, Type: "wait", Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{"duration": "1h"}},
-			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{messageKey: "welcome {{.node_results.trigger.body.employee}}"}},
+			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{messageKey: message}},
 		},
 		Connections: []*models.Connection{
 			{ID: "trigger-hold", SourcePort: "trigger:success", TargetPort: "hold:main"},
@@ -162,10 +162,10 @@ func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {
 	reg.RegisterDefaultNodes()
 
 	workerCtx, stop := context.WithCancel(ctx)
-	defer stop()
+	t.Cleanup(stop)
 
 	go func() {
-		_ = worker.New(p.Jobs(), p.WorkflowRepository(), engine.New(reg), logger, 10*time.Millisecond).Run(workerCtx)
+		_ = worker.New(p.Jobs(), p.WorkflowRepository(), engine.New(reg), slog.New(slog.DiscardHandler), 10*time.Millisecond).Run(workerCtx)
 	}()
 
 	require.Eventually(t, func() bool {
@@ -174,23 +174,41 @@ func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {
 		return err == nil && saved.NodeResults[holdNodeID].Status == string(models.NodeStatusWaiting)
 	}, 10*time.Second, 20*time.Millisecond)
 
-	runAts := pendingJobs(ctx, t, databaseURL, execution.ID)
+	return execution.ID
+}
+
+func waitForStatus(ctx context.Context, t *testing.T, p *postgresql.Persistence, executionID string, status models.ExecutionStatus) *models.ExecutionContext {
+	t.Helper()
+
+	var saved *models.ExecutionContext
+
+	require.Eventually(t, func() bool {
+		var err error
+
+		saved, err = p.ExecutionContextRepository().GetExecutionContext(ctx, executionID)
+
+		return err == nil && saved.Status == status
+	}, 10*time.Second, 20*time.Millisecond)
+
+	return saved
+}
+
+func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {
+	p, ctx, databaseURL := setupTestDB(t)
+	executionID := startWaitingExecution(ctx, t, p, "welcome {{.node_results.trigger.body.employee}}")
+
+	runAts := pendingJobs(ctx, t, databaseURL, executionID)
 	require.Len(t, runAts, 1)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), runAts[0], time.Minute)
 
-	saved, err := p.ExecutionContextRepository().GetExecutionContext(ctx, execution.ID)
+	saved, err := p.ExecutionContextRepository().GetExecutionContext(ctx, executionID)
 	require.NoError(t, err)
 	assert.Equal(t, models.ExecutionStatusRunning, saved.Status)
 	assert.NotContains(t, saved.NodeResults, greetNodeID)
 
-	makeJobsDue(ctx, t, databaseURL, execution.ID)
+	makeJobsDue(ctx, t, databaseURL, executionID)
 
-	require.Eventually(t, func() bool {
-		saved, err = p.ExecutionContextRepository().GetExecutionContext(ctx, execution.ID)
-
-		return err == nil && saved.Status == models.ExecutionStatusCompleted
-	}, 10*time.Second, 20*time.Millisecond)
-
+	saved = waitForStatus(ctx, t, p, executionID, models.ExecutionStatusCompleted)
 	assert.Equal(t, "welcome Ana", saved.NodeResults[greetNodeID].Data[messageKey])
-	assert.Empty(t, pendingJobs(ctx, t, databaseURL, execution.ID))
+	assert.Empty(t, pendingJobs(ctx, t, databaseURL, executionID))
 }

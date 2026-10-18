@@ -41,20 +41,26 @@ type Catalog interface {
 	List(ctx context.Context) ([]*models.EventDefinition, error)
 }
 
+type Resumer interface {
+	Resume(ctx context.Context, executionID, nodeID string, data map[string]any) error
+}
+
 type API struct {
 	workflows  Workflows
 	publisher  Publisher
 	executions Executions
 	catalog    Catalog
+	resumer    Resumer
 	validate   *validator.Validate
 }
 
-func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog) *API {
+func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog, resumer Resumer) *API {
 	return &API{
 		workflows:  workflows,
 		publisher:  publisher,
 		executions: executions,
 		catalog:    catalog,
+		resumer:    resumer,
 		validate:   validator.New(validator.WithRequiredStructEnabled()),
 	}
 }
@@ -66,6 +72,7 @@ func (a *API) Register(app *fiber.App) {
 	app.Post("/workflows/:id/publish", a.publishWorkflow)
 	app.Get("/workflows/:id/executions", a.listExecutions)
 	app.Get("/executions/:id", a.getExecution)
+	app.Post("/executions/:id/nodes/:node_id/resume", a.resumeNode)
 	app.Put("/platform/event-definitions/:key", a.saveEventDefinition)
 	app.Get("/platform/event-definitions/:key", a.getEventDefinition)
 	app.Get("/catalog/events", a.listCatalog)
@@ -156,6 +163,27 @@ func (a *API) getExecution(c fiber.Ctx) error {
 	return c.JSON(execution)
 }
 
+func (a *API) resumeNode(c fiber.Ctx) error {
+	var data map[string]any
+
+	if len(c.Body()) > 0 {
+		if err := json.Unmarshal(c.Body(), &data); err != nil {
+			return problem(c, fiber.StatusBadRequest, err)
+		}
+	}
+
+	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	if err := a.resumer.Resume(c.Context(), execution.ID, c.Params("node_id"), data); err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"execution": execution.ID})
+}
+
 func (a *API) saveEventDefinition(c fiber.Ctx) error {
 	var definition models.EventDefinition
 	if err := json.Unmarshal(c.Body(), &definition); err != nil {
@@ -218,6 +246,8 @@ func statusFor(err error) int {
 		return fiber.StatusNotFound
 	case errors.Is(err, workflow.ErrInvalidWorkflow):
 		return fiber.StatusUnprocessableEntity
+	case errors.Is(err, persistence.ErrNodeNotWaiting):
+		return fiber.StatusConflict
 	default:
 		return fiber.StatusInternalServerError
 	}
