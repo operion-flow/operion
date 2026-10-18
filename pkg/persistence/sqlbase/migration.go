@@ -26,9 +26,27 @@ func NewMigrationManager(logger *slog.Logger, db *sql.DB, migrations map[int]str
 	}
 }
 
+const migrationLockKey = 7206151617
+
 // RunMigrations applies, in version order, every migration not yet recorded in schema_migrations.
+// It holds a Postgres advisory lock for the whole run, so replicas starting together apply each migration once.
 func (m *MigrationManager) RunMigrations(ctx context.Context) error {
-	_, err := m.db.ExecContext(ctx, `
+	conn, err := m.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get a connection for migrations: %w", err)
+	}
+
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationLockKey); err != nil {
+		return fmt.Errorf("failed to lock migrations: %w", err)
+	}
+
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", migrationLockKey)
+	}()
+
+	_, err = conn.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
 			applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -38,7 +56,7 @@ func (m *MigrationManager) RunMigrations(ctx context.Context) error {
 		return fmt.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
-	applied, err := m.appliedVersions(ctx)
+	applied, err := appliedVersions(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -48,7 +66,7 @@ func (m *MigrationManager) RunMigrations(ctx context.Context) error {
 			continue
 		}
 
-		if err := m.apply(ctx, version); err != nil {
+		if err := m.apply(ctx, conn, version); err != nil {
 			return err
 		}
 
@@ -58,8 +76,8 @@ func (m *MigrationManager) RunMigrations(ctx context.Context) error {
 	return nil
 }
 
-func (m *MigrationManager) appliedVersions(ctx context.Context) (map[int]bool, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT version FROM schema_migrations")
+func appliedVersions(ctx context.Context, conn *sql.Conn) (map[int]bool, error) {
+	rows, err := conn.QueryContext(ctx, "SELECT version FROM schema_migrations")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read applied migrations: %w", err)
 	}
@@ -80,8 +98,8 @@ func (m *MigrationManager) appliedVersions(ctx context.Context) (map[int]bool, e
 	return applied, rows.Err()
 }
 
-func (m *MigrationManager) apply(ctx context.Context, version int) error {
-	tx, err := m.db.BeginTx(ctx, nil)
+func (m *MigrationManager) apply(ctx context.Context, conn *sql.Conn, version int) error {
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction for migration %d: %w", version, err)
 	}
