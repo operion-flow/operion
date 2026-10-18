@@ -31,13 +31,17 @@ func benefitType(url string) models.RemoteNodeType {
 	}
 }
 
+func event() map[string]any {
+	return map[string]any{"body": map[string]any{"name": employee}}
+}
+
 func execution() models.ExecutionContext {
 	return models.ExecutionContext{
 		ID:          "exec-1",
 		WorkflowID:  "wf-1",
-		TriggerData: map[string]any{"body": map[string]any{"name": employee}},
+		TriggerData: event(),
 		Variables:   map[string]any{"team": team},
-		NodeResults: map[string]models.NodeResult{"trigger": {Data: map[string]any{"body": map[string]any{"name": employee}}}},
+		NodeResults: map[string]models.NodeResult{"trigger": {Data: event()}},
 	}
 }
 
@@ -91,8 +95,8 @@ func TestExecuteSendsTheContextAndRoutesToTheAnsweredPort(t *testing.T) {
 	assert.Equal(t, "benefit", seen["node_id"])
 	assert.Equal(t, map[string]any{amount: team, tags: []any{employee, float64(3)}, "metadata": map[string]any{"source": "operion"}}, seen["config"])
 	assert.Equal(t, map[string]any{"employee": employee}, seen["input"])
-	assert.Equal(t, map[string]any{"body": map[string]any{"name": employee}}, seen["trigger_data"])
-	assert.Equal(t, map[string]any{"trigger": map[string]any{"body": map[string]any{"name": employee}}}, seen["node_results"])
+	assert.Equal(t, event(), seen["trigger_data"])
+	assert.Equal(t, map[string]any{"trigger": event()}, seen["node_results"])
 	assert.Equal(t, map[string]any{"team": team}, seen["variables"])
 }
 
