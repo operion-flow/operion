@@ -145,18 +145,43 @@ func (f *fakeCatalog) List(context.Context) ([]*models.EventDefinition, error) {
 	return definitions, f.err
 }
 
+type fakeNodeTypes struct {
+	nodeTypes map[string]*models.RemoteNodeType
+	err       error
+}
+
+func (f *fakeNodeTypes) Save(_ context.Context, nodeType *models.RemoteNodeType) error {
+	if f.err != nil {
+		return f.err
+	}
+
+	f.nodeTypes[nodeType.ID] = nodeType
+
+	return nil
+}
+
+func (f *fakeNodeTypes) Get(_ context.Context, id string) (*models.RemoteNodeType, error) {
+	nodeType, ok := f.nodeTypes[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", persistence.ErrRemoteNodeTypeNotFound, id)
+	}
+
+	return nodeType, nil
+}
+
 type server struct {
 	workflows  *fakeWorkflows
 	publisher  fakePublisher
 	executions fakeExecutions
 	catalog    *fakeCatalog
+	nodeTypes  *fakeNodeTypes
 }
 
 func (s server) do(t *testing.T, method, target, body string) (int, map[string]any) {
 	t.Helper()
 
 	app := fiber.New()
-	api.New(s.workflows, s.publisher, s.executions, s.catalog).Register(app)
+	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.nodeTypes).Register(app)
 
 	resp, err := app.Test(httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body)))
 	require.NoError(t, err)
@@ -182,7 +207,8 @@ func newServer() server {
 		executions: fakeExecutions{executions: map[string]*models.ExecutionContext{
 			"exec": {ID: "exec", WorkflowID: "wf", Status: models.ExecutionStatusCompleted},
 		}},
-		catalog: &fakeCatalog{definitions: map[string]*models.EventDefinition{}},
+		catalog:   &fakeCatalog{definitions: map[string]*models.EventDefinition{}},
+		nodeTypes: &fakeNodeTypes{nodeTypes: map[string]*models.RemoteNodeType{}},
 	}
 }
 
@@ -401,5 +427,54 @@ func TestListExecutionsRejectsBadRequests(t *testing.T) {
 
 	s.executions.err = errStore
 	status, _ = s.do(t, http.MethodGet, "/workflows/wf/executions", "")
+	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+func TestSaveAndGetNodeType(t *testing.T) {
+	s := newServer()
+
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits.internal/operion"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "create_benefit", body["id"])
+	assert.Equal(t, []any{"success", "error"}, body["outputs"])
+	assert.InDelta(t, 30, body["timeout_seconds"], 0)
+
+	status, body = s.do(t, http.MethodGet, "/platform/node-types/create_benefit", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "https://benefits.internal/operion", body["url"])
+
+	status, _ = s.do(t, http.MethodGet, "/platform/node-types/missing", "")
+	assert.Equal(t, http.StatusNotFound, status)
+}
+
+func TestSaveNodeTypeRejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{`},
+		{name: "missing url", body: `{"name": "Criar benefício"}`},
+		{name: "not an http url", body: `{"name": "Criar benefício", "url": "ftp://benefits"}`},
+		{name: "timeout too long", body: `{"name": "Criar benefício", "url": "https://benefits", "timeout_seconds": 301}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer()
+
+			status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", tt.body)
+
+			assert.Equal(t, http.StatusBadRequest, status)
+			assert.Empty(t, s.nodeTypes.nodeTypes)
+		})
+	}
+}
+
+func TestSaveNodeTypeStoreError(t *testing.T) {
+	s := newServer()
+	s.nodeTypes.err = errStore
+
+	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits"}`)
+
 	assert.Equal(t, http.StatusInternalServerError, status)
 }

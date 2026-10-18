@@ -85,6 +85,7 @@ func serve(ctx context.Context, options serveOptions) error {
 
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
+	reg.UseRemoteTypes(store.RemoteNodeTypes())
 
 	e := engine.New(reg)
 	jobs := store.Jobs()
@@ -112,7 +113,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
 	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
 	ingest.NewWebhook(store, jobs, logger).Register(app)
-	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository(), store.EventDefinitions()).Register(app)
+	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository(), store.EventDefinitions(), store.RemoteNodeTypes()).Register(app)
 
 	var running sync.WaitGroup
 

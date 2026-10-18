@@ -11,6 +11,7 @@ import (
 var (
 	ErrExecutionNotFound       = errors.New("execution context not found")
 	ErrEventDefinitionNotFound = errors.New("event definition not found")
+	ErrRemoteNodeTypeNotFound  = errors.New("remote node type not found")
 )
 
 type Persistence interface {

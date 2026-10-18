@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/remote"
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/workflow"
 	"github.com/go-playground/validator/v10"
@@ -41,20 +42,27 @@ type Catalog interface {
 	List(ctx context.Context) ([]*models.EventDefinition, error)
 }
 
+type NodeTypes interface {
+	Save(ctx context.Context, nodeType *models.RemoteNodeType) error
+	Get(ctx context.Context, id string) (*models.RemoteNodeType, error)
+}
+
 type API struct {
 	workflows  Workflows
 	publisher  Publisher
 	executions Executions
 	catalog    Catalog
+	nodeTypes  NodeTypes
 	validate   *validator.Validate
 }
 
-func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog) *API {
+func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog, nodeTypes NodeTypes) *API {
 	return &API{
 		workflows:  workflows,
 		publisher:  publisher,
 		executions: executions,
 		catalog:    catalog,
+		nodeTypes:  nodeTypes,
 		validate:   validator.New(validator.WithRequiredStructEnabled()),
 	}
 }
@@ -69,6 +77,8 @@ func (a *API) Register(app *fiber.App) {
 	app.Put("/platform/event-definitions/:key", a.saveEventDefinition)
 	app.Get("/platform/event-definitions/:key", a.getEventDefinition)
 	app.Get("/catalog/events", a.listCatalog)
+	app.Put("/platform/node-types/:id", a.saveNodeType)
+	app.Get("/platform/node-types/:id", a.getNodeType)
 }
 
 func (a *API) listWorkflows(c fiber.Ctx) error {
@@ -210,11 +220,42 @@ func (a *API) listCatalog(c fiber.Ctx) error {
 	return c.JSON(events)
 }
 
+func (a *API) saveNodeType(c fiber.Ctx) error {
+	var nodeType models.RemoteNodeType
+	if err := json.Unmarshal(c.Body(), &nodeType); err != nil {
+		return problem(c, fiber.StatusBadRequest, err)
+	}
+
+	nodeType.ID = c.Params("id")
+
+	if err := a.validate.Struct(&nodeType); err != nil {
+		return problem(c, fiber.StatusBadRequest, err)
+	}
+
+	remote.Normalize(&nodeType)
+
+	if err := a.nodeTypes.Save(c.Context(), &nodeType); err != nil {
+		return problem(c, fiber.StatusInternalServerError, err)
+	}
+
+	return c.JSON(nodeType)
+}
+
+func (a *API) getNodeType(c fiber.Ctx) error {
+	nodeType, err := a.nodeTypes.Get(c.Context(), c.Params("id"))
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	return c.JSON(nodeType)
+}
+
 func statusFor(err error) int {
 	switch {
 	case errors.Is(err, workflow.ErrWorkflowNotFound),
 		errors.Is(err, persistence.ErrExecutionNotFound),
-		errors.Is(err, persistence.ErrEventDefinitionNotFound):
+		errors.Is(err, persistence.ErrEventDefinitionNotFound),
+		errors.Is(err, persistence.ErrRemoteNodeTypeNotFound):
 		return fiber.StatusNotFound
 	case errors.Is(err, workflow.ErrInvalidWorkflow):
 		return fiber.StatusUnprocessableEntity
