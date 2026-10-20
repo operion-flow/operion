@@ -12,7 +12,7 @@ Operion is a workflow engine in Go. A workflow is a graph of nodes connected by 
 - `pkg/engine`: `Run` executes a workflow graph from an activation; `Validate` checks node types, configs, ports, cycles and reachability before publishing.
 - `pkg/worker`: claims due rows from the Postgres `jobs` table with `FOR UPDATE SKIP LOCKED` and runs them with the engine in one transaction.
 - `pkg/scheduler`: keeps the `schedules` table in sync with published `trigger:scheduler` nodes and fires the due ones.
-- `pkg/ingest`: turns incoming events into an execution and its first job: webhooks (`POST /webhooks/<tenant>/*`) and Kafka messages, matched to `trigger:kafka` by topic and to `trigger:event` by catalog event and tenant. `decoder.go` decodes `avro` and `protobuf` catalog events with schemas from the Confluent Schema Registry.
+- `pkg/ingest`: turns incoming events into work: webhooks (`POST /webhooks/<tenant>/*`) start executions, callbacks (`POST /callbacks/<execution>/<node>/<token>`) resume a remote node that answered 202, and Kafka messages start executions, matched to `trigger:kafka` by topic and to `trigger:event` by catalog event and tenant. `decoder.go` decodes `avro` and `protobuf` catalog events with schemas from the Confluent Schema Registry.
 - `pkg/api`: workflow and execution endpoints, errors as `application/problem+json`.
 - `pkg/workflow`: workflow repository and publishing; publishing calls `Engine.Validate`.
 - `pkg/persistence/postgresql`: Postgres storage. Migrations are the versioned map in `migration.go`; add a new version for every schema change.

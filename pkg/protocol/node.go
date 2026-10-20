@@ -53,3 +53,18 @@ type NodeFactory interface {
 type Waiter interface {
 	WaitUntil(ctx models.ExecutionContext, inputs map[string]models.NodeResult) (time.Time, error)
 }
+
+// ResumePort is the input port a held node is activated on when its wait ends or someone resumes it.
+const ResumePort = "resume"
+
+// SuspendError is returned by Execute when the node handed its work to someone who answers later
+// through a resume. The engine stores Data as the node's waiting result and activates the node
+// on ResumePort at Until, or earlier when the answer arrives.
+type SuspendError struct {
+	Until time.Time
+	Data  map[string]any
+}
+
+func (s *SuspendError) Error() string {
+	return "suspended until " + s.Until.UTC().Format(time.RFC3339)
+}

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: operion
+      POSTGRES_PASSWORD: operion
+      POSTGRES_DB: operion
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operion -d operion"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  operion:
+    build:
+      context: ../..
+    command: ["serve", "--node-types", "/etc/operion/node-types.json"]
+    environment:
+      DATABASE_URL: postgres://operion:operion@postgres:5432/operion?sslmode=disable
+      OPERION_API_TOKEN: dev-token
+      OPERION_PUBLIC_URL: http://operion:9091
+    volumes:
+      - ./node-types.json:/etc/operion/node-types.json:ro
+    ports:
+      - "9091:9091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  benefits:
+    build:
+      context: ../..
+      dockerfile: examples/benefits/Dockerfile
+    environment:
+      OPERION_SECRET: change-me-to-a-long-random-secret

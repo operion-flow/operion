@@ -6,15 +6,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
+	"github.com/dukex/operion/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +91,7 @@ func TestExecuteSendsTheContextAndRoutesToTheAnsweredPort(t *testing.T) {
 		tags:       []any{"{{.node_results.trigger.body.name}}", 3},
 		"metadata": map[string]any{"source": "operion"},
 	}
-	node := remote.New(benefitType(server.URL), "benefit", config, server.Client())
+	node := remote.New(benefitType(server.URL), "benefit", config, server.Client(), "")
 
 	outputs, err := node.Execute(execution(), input())
 
@@ -126,7 +129,7 @@ func TestExecuteSignsTheBodyWhenTheTypeHasASecret(t *testing.T) {
 	nodeType := benefitType(server.URL)
 	nodeType.Secret = secret
 
-	outputs, err := remote.New(nodeType, "benefit", nil, server.Client()).Execute(execution(), input())
+	outputs, err := remote.New(nodeType, "benefit", nil, server.Client(), "").Execute(execution(), input())
 	require.NoError(t, err)
 	require.Contains(t, outputs, "approved")
 
@@ -148,7 +151,7 @@ func TestExecuteSendsNoSignatureWithoutASecret(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client()).Execute(execution(), input())
+	_, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), "").Execute(execution(), input())
 	require.NoError(t, err)
 
 	sent := <-headers
@@ -159,7 +162,7 @@ func TestExecuteSendsNoSignatureWithoutASecret(t *testing.T) {
 func TestExecuteMarksTheErrorPortAsError(t *testing.T) {
 	server := answering(t, http.StatusOK, `{"port": "error", "data": {"reason": "no budget"}}`, nil)
 
-	outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client()).Execute(execution(), input())
+	outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), "").Execute(execution(), input())
 
 	require.NoError(t, err)
 	assert.Equal(t, string(models.NodeStatusError), outputs[errorPort].Status)
@@ -182,7 +185,7 @@ func TestExecuteFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := answering(t, tt.status, tt.body, nil)
 
-			outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client()).Execute(execution(), input())
+			outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), "").Execute(execution(), input())
 
 			require.NoError(t, err)
 			assert.Contains(t, errorMessage(t, outputs), tt.message)
@@ -201,7 +204,7 @@ func TestExecuteTimesOut(t *testing.T) {
 	nodeType := benefitType(server.URL)
 	nodeType.TimeoutSeconds = 1
 
-	outputs, err := remote.New(nodeType, "benefit", nil, server.Client()).Execute(execution(), input())
+	outputs, err := remote.New(nodeType, "benefit", nil, server.Client(), "").Execute(execution(), input())
 
 	require.NoError(t, err)
 	assert.Contains(t, errorMessage(t, outputs), "context deadline exceeded")
@@ -224,26 +227,26 @@ func TestExecuteReportsTransportAndEncodingErrors(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: failingBody{}}, nil
 	})}
 
-	outputs, _ := remote.New(benefitType("http://benefits.test"), "benefit", nil, unreachable).Execute(execution(), input())
+	outputs, _ := remote.New(benefitType("http://benefits.test"), "benefit", nil, unreachable, "").Execute(execution(), input())
 	assert.Contains(t, errorMessage(t, outputs), "connection refused")
 
-	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", nil, brokenBody).Execute(execution(), input())
+	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", nil, brokenBody, "").Execute(execution(), input())
 	assert.Contains(t, errorMessage(t, outputs), "connection reset")
 
-	outputs, _ = remote.New(benefitType("http://[::1"), "benefit", nil, unreachable).Execute(execution(), input())
+	outputs, _ = remote.New(benefitType("http://[::1"), "benefit", nil, unreachable, "").Execute(execution(), input())
 	assert.Contains(t, errorMessage(t, outputs), "missing ']'")
 
-	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", map[string]any{tags: []any{"{{"}}, unreachable).Execute(execution(), input())
+	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", map[string]any{tags: []any{"{{"}}, unreachable, "").Execute(execution(), input())
 	assert.Contains(t, errorMessage(t, outputs), "config template")
 
 	unencodable := execution()
 	unencodable.TriggerData = map[string]any{"channel": make(chan int)}
-	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", nil, unreachable).Execute(unencodable, input())
+	outputs, _ = remote.New(benefitType("http://benefits.test"), "benefit", nil, unreachable, "").Execute(unencodable, input())
 	assert.Contains(t, errorMessage(t, outputs), "encode request")
 }
 
 func TestNodeDescribesItself(t *testing.T) {
-	node := remote.New(benefitType("http://benefits.test"), "benefit", nil, http.DefaultClient)
+	node := remote.New(benefitType("http://benefits.test"), "benefit", nil, http.DefaultClient, "")
 
 	assert.Equal(t, "benefit", node.ID())
 	assert.Equal(t, "create_benefit", node.Type())
@@ -269,4 +272,106 @@ func TestNormalizeFillsDefaults(t *testing.T) {
 	remote.Normalize(&explicit)
 	assert.Equal(t, []string{"done", errorPort}, explicit.Outputs)
 	assert.Equal(t, 5, explicit.TimeoutSeconds)
+}
+
+const (
+	callbackBase = "http://operion.test"
+	portKey      = "port"
+)
+
+func suspended(t *testing.T, outputs map[string]models.NodeResult, err error) *protocol.SuspendError {
+	t.Helper()
+
+	assert.Nil(t, outputs)
+
+	var held *protocol.SuspendError
+	require.ErrorAs(t, err, &held)
+
+	return held
+}
+
+func TestExecuteHoldsTheNodeWhenTheServiceAccepts(t *testing.T) {
+	var seen map[string]any
+
+	server := answering(t, http.StatusAccepted, "", &seen)
+
+	outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), callbackBase).Execute(execution(), input())
+
+	held := suspended(t, outputs, err)
+	assert.WithinDuration(t, time.Now().Add(24*time.Hour), held.Until, 5*time.Second)
+	assert.Equal(t, held.Until.Format(time.RFC3339), held.Data["answer_by"])
+
+	callbackURL, ok := seen["callback_url"].(string)
+	require.True(t, ok, seen)
+	require.True(t, strings.HasPrefix(callbackURL, callbackBase+"/callbacks/exec-1/benefit/"), callbackURL)
+
+	token := strings.TrimPrefix(callbackURL, callbackBase+"/callbacks/exec-1/benefit/")
+	waiting := models.NodeResult{Data: held.Data}
+	assert.True(t, remote.CallbackAllowed(waiting, token))
+	assert.False(t, remote.CallbackAllowed(waiting, token+"x"))
+	assert.False(t, remote.CallbackAllowed(waiting, ""))
+	assert.False(t, remote.CallbackAllowed(models.NodeResult{}, token))
+	assert.NotContains(t, fmt.Sprint(held.Data), token)
+}
+
+func TestExecuteHoldsForTheTimeTheServiceAsks(t *testing.T) {
+	server := answering(t, http.StatusAccepted, `{"timeout_seconds": 60}`, nil)
+
+	outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), callbackBase).Execute(execution(), input())
+
+	held := suspended(t, outputs, err)
+	assert.WithinDuration(t, time.Now().Add(time.Minute), held.Until, 5*time.Second)
+}
+
+func TestExecuteRejectsAnAcceptThatCannotBeAnswered(t *testing.T) {
+	tests := []struct {
+		name    string
+		base    string
+		body    string
+		message string
+	}{
+		{name: "no public url", body: "", message: "serve has no --public-url"},
+		{name: "negative wait", base: callbackBase, body: `{"timeout_seconds": -1}`, message: "asked to wait -1 seconds"},
+		{name: "wait over a year", base: callbackBase, body: `{"timeout_seconds": 31536001}`, message: "asked to wait 31536001 seconds"},
+		{name: "invalid json", base: callbackBase, body: `later`, message: "remote node answered invalid JSON"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var seen map[string]any
+
+			server := answering(t, http.StatusAccepted, tt.body, &seen)
+
+			outputs, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client(), tt.base).Execute(execution(), input())
+
+			require.NoError(t, err)
+			assert.Contains(t, errorMessage(t, outputs), tt.message)
+
+			if tt.base == "" {
+				assert.NotContains(t, seen, "callback_url")
+			}
+		})
+	}
+}
+
+func TestExecuteFollowsTheAnswerThatResumesTheNode(t *testing.T) {
+	node := remote.New(benefitType("http://benefits.test"), "benefit", nil, http.DefaultClient, callbackBase)
+	resumed := func(data map[string]any) map[string]models.NodeResult {
+		outputs, err := node.Execute(execution(), map[string]models.NodeResult{"resume": {Data: data}})
+		require.NoError(t, err)
+
+		return outputs
+	}
+
+	outputs := resumed(map[string]any{portKey: "approved", "data": map[string]any{"benefit_id": "b-1"}})
+	require.Contains(t, outputs, "approved")
+	assert.Equal(t, map[string]any{"benefit_id": "b-1"}, outputs["approved"].Data)
+	assert.Equal(t, string(models.NodeStatusSuccess), outputs["approved"].Status)
+
+	outputs = resumed(map[string]any{portKey: errorPort, "data": map[string]any{"reason": "no budget"}})
+	assert.Equal(t, string(models.NodeStatusError), outputs[errorPort].Status)
+	assert.Equal(t, map[string]any{"reason": "no budget"}, outputs[errorPort].Data)
+
+	assert.Contains(t, errorMessage(t, resumed(map[string]any{portKey: "maybe"})), `unknown port "maybe"`)
+	assert.Contains(t, errorMessage(t, resumed(nil)), "did not call back before its deadline")
 }

@@ -4,17 +4,22 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/protocol"
 	"github.com/dukex/operion/pkg/template"
 )
 
@@ -26,6 +31,14 @@ const (
 	maxResponseSize = 1 << 20
 	timestampHeader = "X-Operion-Timestamp"
 	signatureHeader = "X-Operion-Signature"
+	defaultAnswer   = 24 * time.Hour
+	maxAnswer       = 365 * 24 * time.Hour
+	tokenKey        = "callback_token_sha256"
+)
+
+var (
+	errNoCallbackURL = errors.New("remote node answered 202 but serve has no --public-url for it to call back")
+	errNoAnswer      = errors.New("remote node did not call back before its deadline")
 )
 
 func Normalize(nodeType *models.RemoteNodeType) {
@@ -43,16 +56,17 @@ func Normalize(nodeType *models.RemoteNodeType) {
 }
 
 type Node struct {
-	nodeType models.RemoteNodeType
-	id       string
-	config   map[string]any
-	client   *http.Client
+	nodeType     models.RemoteNodeType
+	id           string
+	config       map[string]any
+	client       *http.Client
+	callbackBase string
 }
 
-func New(nodeType models.RemoteNodeType, id string, config map[string]any, client *http.Client) *Node {
+func New(nodeType models.RemoteNodeType, id string, config map[string]any, client *http.Client, callbackBase string) *Node {
 	Normalize(&nodeType)
 
-	return &Node{nodeType: nodeType, id: id, config: config, client: client}
+	return &Node{nodeType: nodeType, id: id, config: config, client: client, callbackBase: callbackBase}
 }
 
 func (n *Node) ID() string {
@@ -97,14 +111,20 @@ type request struct {
 	TriggerData map[string]any `json:"trigger_data"`
 	NodeResults map[string]any `json:"node_results"`
 	Variables   map[string]any `json:"variables"`
+	CallbackURL string         `json:"callback_url,omitempty"`
 }
 
 type response struct {
-	Port string         `json:"port"`
-	Data map[string]any `json:"data"`
+	Port           string         `json:"port"`
+	Data           map[string]any `json:"data"`
+	TimeoutSeconds int            `json:"timeout_seconds"`
 }
 
 func (n *Node) Execute(execution models.ExecutionContext, inputs map[string]models.NodeResult) (map[string]models.NodeResult, error) {
+	if answer, ok := inputs[protocol.ResumePort]; ok {
+		return n.answered(answer.Data), nil
+	}
+
 	config, err := render(n.config, &execution)
 	if err != nil {
 		return n.fail(fmt.Errorf("config template: %w", err)), nil
@@ -115,6 +135,8 @@ func (n *Node) Execute(execution models.ExecutionContext, inputs map[string]mode
 		nodeResults[nodeID] = result.Data
 	}
 
+	token := rand.Text()
+
 	body, err := json.Marshal(request{
 		ExecutionID: execution.ID,
 		WorkflowID:  execution.WorkflowID,
@@ -124,18 +146,68 @@ func (n *Node) Execute(execution models.ExecutionContext, inputs map[string]mode
 		TriggerData: execution.TriggerData,
 		NodeResults: nodeResults,
 		Variables:   execution.Variables,
+		CallbackURL: n.callbackURL(execution.ID, token),
 	})
 	if err != nil {
 		return n.fail(fmt.Errorf("encode request: %w", err)), nil
 	}
 
-	answer, err := n.call(body)
+	answer, accepted, err := n.call(body)
 	if err != nil {
 		return n.fail(err), nil
 	}
 
+	if accepted {
+		return n.suspend(answer, token)
+	}
+
+	return n.route(answer), nil
+}
+
+func (n *Node) callbackURL(executionID, token string) string {
+	if n.callbackBase == "" {
+		return ""
+	}
+
+	return n.callbackBase + "/callbacks/" + url.PathEscape(executionID) + "/" + url.PathEscape(n.id) + "/" + token
+}
+
+func (n *Node) suspend(answer *response, token string) (map[string]models.NodeResult, error) {
+	if n.callbackBase == "" {
+		return n.fail(errNoCallbackURL), nil
+	}
+
+	wait := defaultAnswer
+	if answer.TimeoutSeconds != 0 {
+		wait = time.Duration(answer.TimeoutSeconds) * time.Second
+	}
+
+	if wait <= 0 || wait > maxAnswer {
+		return n.fail(fmt.Errorf("remote node asked to wait %d seconds, more than a year or not positive", answer.TimeoutSeconds)), nil
+	}
+
+	until := time.Now().Add(wait).UTC()
+
+	return nil, &protocol.SuspendError{Until: until, Data: map[string]any{
+		tokenKey:    tokenHash(token),
+		"answer_by": until.Format(time.RFC3339),
+	}}
+}
+
+func (n *Node) answered(data map[string]any) map[string]models.NodeResult {
+	if data == nil {
+		return n.fail(errNoAnswer)
+	}
+
+	port, _ := data["port"].(string)
+	result, _ := data["data"].(map[string]any)
+
+	return n.route(&response{Port: port, Data: result})
+}
+
+func (n *Node) route(answer *response) map[string]models.NodeResult {
 	if !slices.Contains(n.nodeType.Outputs, answer.Port) {
-		return n.fail(fmt.Errorf("remote node answered unknown port %q", answer.Port)), nil
+		return n.fail(fmt.Errorf("remote node answered unknown port %q", answer.Port))
 	}
 
 	status := models.NodeStatusSuccess
@@ -143,16 +215,29 @@ func (n *Node) Execute(execution models.ExecutionContext, inputs map[string]mode
 		status = models.NodeStatusError
 	}
 
-	return map[string]models.NodeResult{answer.Port: {NodeID: n.id, Data: answer.Data, Status: string(status)}}, nil
+	return map[string]models.NodeResult{answer.Port: {NodeID: n.id, Data: answer.Data, Status: string(status)}}
 }
 
-func (n *Node) call(body []byte) (*response, error) {
+// CallbackAllowed reports whether token is the callback token handed out with the call that left result waiting.
+func CallbackAllowed(result models.NodeResult, token string) bool {
+	stored, _ := result.Data[tokenKey].(string)
+
+	return stored != "" && subtle.ConstantTimeCompare([]byte(stored), []byte(tokenHash(token))) == 1
+}
+
+func tokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+
+	return hex.EncodeToString(sum[:])
+}
+
+func (n *Node) call(body []byte) (*response, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(n.nodeType.TimeoutSeconds)*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.nodeType.URL, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -165,26 +250,32 @@ func (n *Node) call(body []byte) (*response, error) {
 
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("remote node answered status %d: %s", resp.StatusCode, payload)
+		return nil, false, fmt.Errorf("remote node answered status %d: %s", resp.StatusCode, payload)
 	}
+
+	accepted := resp.StatusCode == http.StatusAccepted
 
 	var answer response
-	if err := json.Unmarshal(payload, &answer); err != nil {
-		return nil, fmt.Errorf("remote node answered invalid JSON: %w", err)
+	if accepted && len(bytes.TrimSpace(payload)) == 0 {
+		return &answer, true, nil
 	}
 
-	return &answer, nil
+	if err := json.Unmarshal(payload, &answer); err != nil {
+		return nil, false, fmt.Errorf("remote node answered invalid JSON: %w", err)
+	}
+
+	return &answer, accepted, nil
 }
 
 func sign(secret, timestamp string, body []byte) string {

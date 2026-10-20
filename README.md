@@ -81,6 +81,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--database-url` | `DATABASE_URL` | | PostgreSQL connection URL (required) |
 | `--port` | `PORT` | `9091` | HTTP port |
 | `--api-token` | `OPERION_API_TOKEN` | | Bearer token every API route requires (required) |
+| `--public-url` | `OPERION_PUBLIC_URL` | | Base URL remote nodes call back to, such as `http://operion:9091`; without it a remote node that answers 202 fails |
 | `--poll-interval` | | `1s` | How long the worker and the scheduler wait when nothing is due |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:event` and `trigger:kafka` workflows; Kafka is off when empty |
@@ -105,8 +106,9 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
 | `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
-| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. Returns 409 when the node is not waiting |
+| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. Returns 409 when the node is not waiting or was already resumed |
 | `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
+| `POST /callbacks/<execution>/<node>/<token>` | The `callback_url` a remote node answers through later; see [Remote nodes](#remote-nodes) |
 | `GET /catalog/events` | List the events tenants can build workflows on |
 | `PUT /platform/event-definitions/:key`, `GET /platform/event-definitions/:key` | Register and read an event definition (platform operator) |
 | `PUT /platform/node-types/:id` | Register or replace a remote node type |
@@ -159,7 +161,7 @@ Node configs are Go templates. A node reads earlier results with `{{.node_result
 
 ### Remote nodes
 
-A node type can live in any service that speaks HTTP. The platform registers it once:
+A node type can live in any service that speaks HTTP, in any language, deployed next to Operion as its own container. [`examples/benefits`](examples/benefits) is a complete one with a Dockerfile and a compose file. The platform registers it once:
 
 ```bash
 curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' -d '{
@@ -210,6 +212,14 @@ When the node runs, Operion sends `POST <url>` with `Content-Type: application/j
 ```
 
 A non-2xx status, a timeout, a body that is not JSON or a port outside `outputs` goes to the `error` port with `{"error": "<reason>"}`. Answering `"port": "error"` does the same with your own data. Responses are read up to 1 MiB.
+
+A service that needs longer than the call, such as an approval or a provisioning queue, answers `202 Accepted` instead, optionally with `{"timeout_seconds": 259200}` (default 24 hours, at most a year). Operion holds the node, with status `waiting` and `answer_by`, and the branch continues when the service posts the answer to the `callback_url` it received in the request:
+
+```bash
+curl -X POST "$CALLBACK_URL" -H 'Content-Type: application/json' -d '{"port": "approved", "data": {"benefit_id": "b-1"}}'
+```
+
+The body is the same `port` and `data` as a direct answer. The callback answers 202 when it is taken, 409 when the node was already answered or its deadline passed, and 404 for any other URL; the first answer wins. The URL carries a single-use token, so the service needs no Operion credentials. If no answer arrives by the deadline, the node goes to the `error` port. A retry policy covers the call itself, not an error that arrives through the callback. `serve` sends `callback_url` only when it has `--public-url`, and `operion run` cannot wait, so there a 202 fails at once.
 
 Register the type with a `"secret"` of at least 16 characters and every call is signed. The API stores the secret and never returns it. Each request carries `X-Operion-Timestamp`, in Unix seconds, and `X-Operion-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the secret. The service recomputes it, compares in constant time and refuses old timestamps:
 

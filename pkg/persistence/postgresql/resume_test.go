@@ -27,8 +27,9 @@ func TestJobsResumeMakesTheWaitingJobDueWithTheNewData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ErrorIs(t, p.Jobs().Resume(ctx, execution.ID, greetNodeID, nil), persistence.ErrNodeNotWaiting)
-	require.NoError(t, p.Jobs().Resume(ctx, execution.ID, holdNodeID, nil))
+	require.ErrorIs(t, p.Jobs().Resume(ctx, "00000000-0000-0000-0000-000000000000", holdNodeID, nil), persistence.ErrExecutionNotFound)
 	require.NoError(t, p.Jobs().Resume(ctx, execution.ID, holdNodeID, map[string]any{"decision": "approved"}))
+	require.ErrorIs(t, p.Jobs().Resume(ctx, execution.ID, holdNodeID, map[string]any{"decision": "later"}), persistence.ErrNodeNotWaiting)
 
 	var claimed models.Job
 
@@ -90,4 +91,29 @@ func TestResumeContinuesAWaitingNodeWithThePostedData(t *testing.T) {
 
 	status, body = request(t, app, http.MethodPost, "/executions/"+executionID+"/nodes/hold/resume", `{}`)
 	assert.Equal(t, http.StatusConflict, status, body)
+}
+
+func TestJobsResumeIfAsksAboutTheHeldNodeResult(t *testing.T) {
+	p, ctx, _ := setupTestDB(t)
+	_, execution := startJob(ctx, t, p, time.Now().Add(-time.Second))
+
+	_, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, _ models.Job, running *models.ExecutionContext) ([]models.Job, error) {
+		running.NodeResults = map[string]models.NodeResult{holdNodeID: {NodeID: holdNodeID, Status: string(models.NodeStatusWaiting), Data: map[string]any{"ticket": "t-1"}}}
+
+		return []models.Job{deferredJob(execution.ID, time.Now().Add(time.Hour))}, nil
+	})
+	require.NoError(t, err)
+
+	var asked models.NodeResult
+
+	refuse := func(result models.NodeResult) bool {
+		asked = result
+
+		return false
+	}
+
+	require.ErrorIs(t, p.Jobs().ResumeIf(ctx, execution.ID, holdNodeID, nil, refuse), persistence.ErrResumeRefused)
+	assert.Equal(t, map[string]any{"ticket": "t-1"}, asked.Data)
+
+	require.NoError(t, p.Jobs().ResumeIf(ctx, execution.ID, holdNodeID, map[string]any{"port": "approved"}, func(models.NodeResult) bool { return true }))
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
@@ -23,6 +24,7 @@ type Registry struct {
 	nodeFactories map[string]protocol.NodeFactory
 	remote        RemoteTypes
 	client        *http.Client
+	callbackBase  string
 }
 
 func NewRegistry() *Registry {
@@ -36,6 +38,11 @@ func (r *Registry) RegisterNode(nodeFactory protocol.NodeFactory) {
 // UseRemoteTypes makes CreateNode fall back to node types registered by the platform and served over HTTP.
 func (r *Registry) UseRemoteTypes(types RemoteTypes) {
 	r.remote = types
+}
+
+// UseCallbackURL sets the public base URL remote nodes call back to when they answer later.
+func (r *Registry) UseCallbackURL(base string) {
+	r.callbackBase = strings.TrimSuffix(base, "/")
 }
 
 // CreateNode creates a new node instance based on the provided node type and configuration.
@@ -72,5 +79,5 @@ func (r *Registry) createRemote(ctx context.Context, nodeType, nodeID string, co
 		return nil, fmt.Errorf("node type '%s': %w", nodeType, err)
 	}
 
-	return remote.New(*remoteType, nodeID, config, r.client), nil
+	return remote.New(*remoteType, nodeID, config, r.client, r.callbackBase), nil
 }

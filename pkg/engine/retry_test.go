@@ -129,3 +129,17 @@ func TestRunDoesNotRetryNodesThatSucceedOrHaveABrokenPolicy(t *testing.T) {
 	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
 	assert.Equal(t, `node "step": exploded`, execution.ErrorMessage)
 }
+
+func TestRunDoesNotRetryAFailureThatArrivesOnResume(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), retrying(node(stepID, failingType, nil), 3, "1s", "1m")},
+		connect("trigger:success", stepID+":main"),
+	)
+	execution := running(wf)
+
+	deferred := runFrom(t, newEngine(erroring()), wf, execution, engine.Activation{NodeID: stepID, Port: engine.ResumePort})
+
+	assert.Empty(t, deferred)
+	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+	assert.Contains(t, execution.ErrorMessage, boom)
+}
