@@ -94,7 +94,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	e := engine.New(reg)
 
 	app := fiber.New()
-	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e), p.ExecutionContextRepository(), p.EventDefinitions(), p.RemoteNodeTypes()).Register(app)
+	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.RemoteNodeTypes()).Register(app)
 	ingest.NewWebhook(p, p.Jobs(), logger).Register(app)
 
 	definition := `{

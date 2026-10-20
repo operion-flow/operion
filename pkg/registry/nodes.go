@@ -37,4 +37,5 @@ func (r *Registry) RegisterDefaultNodes() {
 	r.RegisterNode(trigger.NewWebhookTriggerNodeFactory())
 	r.RegisterNode(trigger.NewSchedulerTriggerNodeFactory())
 	r.RegisterNode(trigger.NewKafkaTriggerNodeFactory())
+	r.RegisterNode(trigger.NewEventTriggerNodeFactory())
 }

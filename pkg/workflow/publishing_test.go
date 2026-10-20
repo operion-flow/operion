@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -165,6 +166,16 @@ func createTestPersistence() *testPersistence {
 	}
 }
 
+type testCatalog map[string]error
+
+func (c testCatalog) Get(_ context.Context, key string) (*models.EventDefinition, error) {
+	if err, ok := c[key]; ok {
+		return nil, err
+	}
+
+	return &models.EventDefinition{Key: key}, nil
+}
+
 func newTestValidator() *engine.Engine {
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
@@ -174,7 +185,7 @@ func newTestValidator() *engine.Engine {
 
 func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence, newTestValidator())
+	service := NewPublishingService(persistence, newTestValidator(), testCatalog{})
 
 	// Create a valid draft workflow
 	workflow := &models.Workflow{
@@ -210,7 +221,7 @@ func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 
 func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence, newTestValidator())
+	service := NewPublishingService(persistence, newTestValidator(), testCatalog{})
 
 	// Create an invalid workflow (no trigger nodes)
 	workflow := &models.Workflow{
@@ -234,7 +245,7 @@ func TestPublishingService_PublishWorkflow_ValidationError(t *testing.T) {
 
 func TestPublishingService_PublishWorkflow_RejectsBrokenGraph(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence, newTestValidator())
+	service := NewPublishingService(persistence, newTestValidator(), testCatalog{})
 
 	workflow := &models.Workflow{
 		ID:              "broken-workflow",
@@ -273,7 +284,7 @@ func TestPublishingService_PublishWorkflow_RejectsBrokenGraph(t *testing.T) {
 
 func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence, newTestValidator())
+	service := NewPublishingService(persistence, newTestValidator(), testCatalog{})
 
 	// Create and save a published workflow
 	workflow := &models.Workflow{
@@ -295,7 +306,7 @@ func TestPublishingService_GetPublishedWorkflow(t *testing.T) {
 
 func TestPublishingService_CreateDraftFromPublished(t *testing.T) {
 	persistence := createTestPersistence()
-	service := NewPublishingService(persistence, newTestValidator())
+	service := NewPublishingService(persistence, newTestValidator(), testCatalog{})
 
 	// Create and save a published workflow
 	published := &models.Workflow{
@@ -320,4 +331,48 @@ func TestPublishingService_CreateDraftFromPublished(t *testing.T) {
 	assert.NotEqual(t, published.ID, draft.ID) // Should have different ID
 	assert.Nil(t, draft.PublishedAt)
 	assert.Len(t, draft.Nodes, 1) // Should copy nodes
+}
+
+func eventWorkflow(id, event string) *models.Workflow {
+	return &models.Workflow{
+		ID:              id,
+		Name:            "Employee Criado",
+		Status:          models.WorkflowStatusDraft,
+		WorkflowGroupID: id,
+		Nodes: []*models.WorkflowNode{
+			{ID: "on-employee", Type: models.NodeTypeTriggerEvent, Category: models.CategoryTypeTrigger, Config: map[string]any{"event": event}, Enabled: true},
+		},
+	}
+}
+
+func TestPublishingService_PublishesEventTriggersOfTheCatalog(t *testing.T) {
+	store := createTestPersistence()
+	service := NewPublishingService(store, newTestValidator(), testCatalog{})
+	require.NoError(t, store.workflowRepo.Save(t.Context(), eventWorkflow("hire", "employee_created")))
+
+	published, err := service.PublishWorkflow(t.Context(), "hire")
+	require.NoError(t, err)
+	assert.Equal(t, models.WorkflowStatusPublished, published.Status)
+}
+
+func TestPublishingService_RejectsEventsMissingFromTheCatalog(t *testing.T) {
+	store := createTestPersistence()
+	service := NewPublishingService(store, newTestValidator(), testCatalog{"employee_fired": persistence.ErrEventDefinitionNotFound})
+	require.NoError(t, store.workflowRepo.Save(t.Context(), eventWorkflow("fire", "employee_fired")))
+
+	_, err := service.PublishWorkflow(t.Context(), "fire")
+	require.ErrorIs(t, err, ErrInvalidWorkflow)
+	assert.Contains(t, err.Error(), `node "on-employee": event "employee_fired" is not in the catalog`)
+	assert.Equal(t, models.WorkflowStatusDraft, store.workflowRepo.workflows["fire"].Status)
+}
+
+func TestPublishingService_ReturnsCatalogErrors(t *testing.T) {
+	errDown := errors.New("catalog down")
+	store := createTestPersistence()
+	service := NewPublishingService(store, newTestValidator(), testCatalog{"employee_created": errDown})
+	require.NoError(t, store.workflowRepo.Save(t.Context(), eventWorkflow("hire", "employee_created")))
+
+	_, err := service.PublishWorkflow(t.Context(), "hire")
+	require.ErrorIs(t, err, errDown)
+	assert.NotErrorIs(t, err, ErrInvalidWorkflow)
 }
