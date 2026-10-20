@@ -171,6 +171,21 @@ curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Authorization:
 
 Workflows then use `create_benefit` as a node type. `outputs` defaults to `["success"]`, `error` is always added, `timeout_seconds` defaults to 30 (at most 300) and `schema.required` lists the config fields a workflow must set. A built-in node type with the same id wins.
 
+Node types can also live in a file, a JSON object keyed by node type id with the same body as the `PUT`:
+
+```json
+{
+  "create_benefit": {
+    "name": "Criar benefício",
+    "url": "http://benefits.internal/operion",
+    "outputs": ["approved", "rejected"],
+    "schema": {"required": ["amount"]}
+  }
+}
+```
+
+`operion serve --node-types node-types.json` (or `NODE_TYPES_FILE`) registers every entry on start, replacing a stored type with the same id, and does not start when an entry is invalid. Removing an entry from the file does not remove it from the database. `operion run --node-types node-types.json` resolves remote nodes from the file without a database, so a workflow can be tried against a node running on your machine.
+
 When the node runs, Operion sends `POST <url>` with `Content-Type: application/json`:
 
 ```json

@@ -40,6 +40,7 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "schema-registry-url", Usage: "Confluent Schema Registry for avro and protobuf events; they are skipped when empty", Sources: cli.EnvVars("SCHEMA_REGISTRY_URL")},
 			&cli.StringFlag{Name: "schema-registry-username", Usage: "Schema Registry basic auth username", Sources: cli.EnvVars("SCHEMA_REGISTRY_USERNAME")},
 			&cli.StringFlag{Name: "schema-registry-password", Usage: "Schema Registry basic auth password", Sources: cli.EnvVars("SCHEMA_REGISTRY_PASSWORD")},
+			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, registered on start", Sources: cli.EnvVars("NODE_TYPES_FILE")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return serve(ctx, serveOptions{
@@ -55,6 +56,7 @@ func newServeCommand() *cli.Command {
 					Username: command.String("schema-registry-username"),
 					Password: command.String("schema-registry-password"),
 				},
+				nodeTypes: command.String("node-types"),
 			})
 		},
 	}
@@ -69,6 +71,7 @@ type serveOptions struct {
 	kafkaBrokers   []string
 	kafkaGroup     string
 	schemaRegistry ingest.SchemaRegistry
+	nodeTypes      string
 }
 
 func serve(ctx context.Context, options serveOptions) error {
@@ -88,12 +91,23 @@ func serve(ctx context.Context, options serveOptions) error {
 		defer func() { _ = provider.Shutdown(context.WithoutCancel(ctx)) }()
 	}
 
+	nodeTypes, err := readNodeTypes(options.nodeTypes)
+	if err != nil {
+		return err
+	}
+
 	store, err := postgresql.NewPersistence(ctx, logger, options.databaseURL)
 	if err != nil {
 		return err
 	}
 
 	defer func() { _ = store.Close(context.WithoutCancel(ctx)) }()
+
+	for _, nodeType := range nodeTypes {
+		if err := store.RemoteNodeTypes().Save(ctx, &nodeType); err != nil {
+			return err
+		}
+	}
 
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
