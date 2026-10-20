@@ -69,4 +69,5 @@ const (
 	NodeStatusRunning NodeStatus = "running"
 	NodeStatusSuccess NodeStatus = "success"
 	NodeStatusError   NodeStatus = "error"
+	NodeStatusWaiting NodeStatus = "waiting"
 )

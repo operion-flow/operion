@@ -8,6 +8,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -16,7 +17,7 @@ import (
 type Jobs interface {
 	ProcessNext(
 		ctx context.Context,
-		process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) error,
+		process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) ([]models.Job, error),
 	) (bool, error)
 }
 
@@ -55,7 +56,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) process(ctx context.Context, job models.Job, execution *models.ExecutionContext) error {
+func (w *Worker) process(ctx context.Context, job models.Job, execution *models.ExecutionContext) ([]models.Job, error) {
 	ctx, span := otel.Tracer("operion/worker").Start(ctx, "worker.process", trace.WithAttributes(
 		attribute.String("execution_id", execution.ID),
 		attribute.String("workflow_id", execution.WorkflowID),
@@ -63,10 +64,19 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 	))
 	defer span.End()
 
+	if execution.Status != models.ExecutionStatusRunning {
+		w.logger.InfoContext(ctx, "job skipped, execution already finished",
+			"execution_id", execution.ID, "node_id", job.NodeID, "status", execution.Status)
+
+		return nil, nil
+	}
+
 	workflow, err := w.workflows.GetByID(ctx, execution.WorkflowID)
 	if err != nil {
-		return fmt.Errorf("failed to load workflow %s: %w", execution.WorkflowID, err)
+		return nil, fmt.Errorf("failed to load workflow %s: %w", execution.WorkflowID, err)
 	}
+
+	var next []models.Job
 
 	if workflow == nil {
 		now := time.Now().UTC()
@@ -76,9 +86,20 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 	} else {
 		execution.Variables = workflow.Variables
 
-		err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data})
+		deferred, err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data})
 		if err != nil {
-			return err
+			return nil, err
+		}
+
+		for _, later := range deferred {
+			next = append(next, models.Job{
+				ID:          uuid.NewString(),
+				ExecutionID: execution.ID,
+				NodeID:      later.NodeID,
+				Port:        later.Port,
+				Data:        later.Data,
+				RunAt:       later.RunAt,
+			})
 		}
 	}
 
@@ -89,7 +110,8 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 		"node_id", job.NodeID,
 		"status", execution.Status,
 		"error", execution.ErrorMessage,
+		"deferred", len(next),
 	)
 
-	return nil
+	return next, nil
 }

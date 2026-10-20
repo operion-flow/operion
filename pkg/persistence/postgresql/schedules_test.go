@@ -154,10 +154,10 @@ func TestSchedulesProcessDueStartsExecutionAndMovesSchedule(t *testing.T) {
 	at, _ := nextRunAt(ctx, t, databaseURL, workflowID)
 	assert.True(t, later.Equal(at))
 
-	claimed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, job models.Job, _ *models.ExecutionContext) error {
+	claimed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, job models.Job, _ *models.ExecutionContext) ([]models.Job, error) {
 		assert.Equal(t, started.Job.ID, job.ID)
 
-		return nil
+		return nil, nil
 	})
 	require.NoError(t, err)
 	assert.True(t, claimed)
