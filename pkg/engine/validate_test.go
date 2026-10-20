@@ -21,6 +21,7 @@ func TestValidateAcceptsRunnableWorkflow(t *testing.T) {
 		connect("check:true", "active:main"),
 		connect("check:false", "inactive:main"),
 	)
+	wf.Nodes[1] = retrying(wf.Nodes[1], 5, "1s", "1m")
 
 	require.NoError(t, newEngine(nil).Validate(t.Context(), wf))
 }
@@ -67,6 +68,30 @@ func TestValidateRejectsInvalidWorkflow(t *testing.T) {
 				connect("second:success", "first:main"),
 			),
 			messages: []string{`node "first" is part of a cycle`},
+		},
+		{
+			name: "retry without attempts",
+			workflow: workflow(
+				[]*models.WorkflowNode{trigger(), retrying(logNode("step"), 0, "1s", "1m")},
+				connect("trigger:success", "step:main"),
+			),
+			messages: []string{`node "step": retry attempts must be at least 1`},
+		},
+		{
+			name: "retry with a bad initial",
+			workflow: workflow(
+				[]*models.WorkflowNode{trigger(), retrying(logNode("step"), 3, "soon", "1m")},
+				connect("trigger:success", "step:main"),
+			),
+			messages: []string{`node "step": retry initial must be a positive Go duration such as 1s, got "soon"`},
+		},
+		{
+			name: "retry max shorter than initial",
+			workflow: workflow(
+				[]*models.WorkflowNode{trigger(), retrying(logNode("step"), 3, "1m", "1s")},
+				connect("trigger:success", "step:main"),
+			),
+			messages: []string{`node "step": retry max must be a Go duration no shorter than initial, got "1s"`},
 		},
 		{
 			name: "unreachable node",

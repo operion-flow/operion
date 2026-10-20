@@ -150,5 +150,9 @@ func migrations() map[int]string {
 
 			CREATE INDEX idx_workflows_tenant_id ON workflows(tenant_id);
 		`,
+		7: `
+			ALTER TABLE workflow_nodes ADD COLUMN retry JSONB;
+			ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
+		`,
 	}
 }

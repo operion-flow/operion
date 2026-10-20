@@ -34,13 +34,6 @@ type HTTPRequestConfig struct {
 	Headers map[string]string `json:"headers"`
 	Body    string            `json:"body,omitempty"`
 	Timeout int               `json:"timeout"`
-	Retries RetryConfig       `json:"retries"`
-}
-
-// RetryConfig defines retry behavior for HTTP requests.
-type RetryConfig struct {
-	Attempts int `json:"attempts"`
-	Delay    int `json:"delay"`
 }
 
 // NewHTTPRequestNode creates a new HTTP request node.
@@ -50,7 +43,6 @@ func NewHTTPRequestNode(id string, config map[string]any) (*HTTPRequestNode, err
 		Method:  "GET",
 		Headers: make(map[string]string),
 		Timeout: 30,
-		Retries: RetryConfig{Attempts: 1, Delay: 0},
 	}
 
 	// Parse URL (required)
@@ -79,17 +71,6 @@ func NewHTTPRequestNode(id string, config map[string]any) (*HTTPRequestNode, err
 
 	if timeout, ok := config["timeout"].(float64); ok {
 		httpConfig.Timeout = int(timeout)
-	}
-
-	// Parse retries
-	if retries, ok := config["retries"].(map[string]any); ok {
-		if attempts, ok := retries["attempts"].(float64); ok {
-			httpConfig.Retries.Attempts = int(attempts)
-		}
-
-		if delay, ok := retries["delay"].(float64); ok {
-			httpConfig.Retries.Delay = int(delay)
-		}
 	}
 
 	return &HTTPRequestNode{
@@ -152,37 +133,18 @@ func (n *HTTPRequestNode) Execute(ctx models.ExecutionContext, inputs map[string
 		}
 	}
 
-	// Perform HTTP request with retry logic
-	var lastErr error
-
-	for attempt := 1; attempt <= n.config.Retries.Attempts; attempt++ {
-		if attempt > 1 {
-			time.Sleep(time.Duration(n.config.Retries.Delay) * time.Millisecond)
-		}
-
-		result, err := n.performRequest(urlStr, renderedBody, renderedHeaders)
-		if err == nil {
-			// Success - return result on success port
-			results[OutputPortSuccess] = models.NodeResult{
-				NodeID: n.id,
-				Data:   result,
-				Status: string(models.NodeStatusSuccess),
-			}
-
-			return results, nil
-		}
-
-		lastErr = err
-
-		// Don't retry on client errors (4xx), only on server errors (5xx) or network errors
-		httpErr := &HTTPError{}
-		if errors.As(err, &httpErr) {
-			break
-		}
+	result, err := n.performRequest(urlStr, renderedBody, renderedHeaders)
+	if err != nil {
+		return n.createErrorResult(fmt.Sprintf("HTTP request failed: %v", err)), nil
 	}
 
-	// All attempts failed - return error on error port
-	return n.createErrorResult(fmt.Sprintf("HTTP request failed after %d attempts: %v", n.config.Retries.Attempts, lastErr)), nil
+	results[OutputPortSuccess] = models.NodeResult{
+		NodeID: n.id,
+		Data:   result,
+		Status: string(models.NodeStatusSuccess),
+	}
+
+	return results, nil
 }
 
 func requestBody(rendered any) (string, error) {
@@ -362,30 +324,6 @@ func (n *HTTPRequestNode) Validate(config map[string]any) error {
 	if timeout, ok := config["timeout"].(float64); ok {
 		if timeout < 1 || timeout > 300 {
 			return errors.New("timeout must be between 1 and 300 seconds")
-		}
-	}
-
-	// Validate retries if provided
-	if retries, ok := config["retries"].(map[string]any); ok {
-		if err := validateRetryConfig(retries); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validateRetryConfig validates retry configuration parameters.
-func validateRetryConfig(retries map[string]any) error {
-	if attempts, ok := retries["attempts"].(float64); ok {
-		if attempts < 1 || attempts > 10 {
-			return errors.New("retry attempts must be between 1 and 10")
-		}
-	}
-
-	if delay, ok := retries["delay"].(float64); ok {
-		if delay < 0 || delay > 30000 {
-			return errors.New("retry delay must be between 0 and 30000 milliseconds")
 		}
 	}
 

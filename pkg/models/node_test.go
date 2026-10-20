@@ -207,8 +207,8 @@ func TestWorkflowNode_JSONSerialization(t *testing.T) {
 			"url":     "https://api.example.com/users/{{.trigger_data.user_id}}",
 			"method":  "GET",
 			"headers": map[string]string{"Authorization": "Bearer {{.variables.api_token}}"},
-			"retries": map[string]any{"attempts": 3, "delay": 1000},
 		},
+		Retry:     &RetryPolicy{Attempts: 3, Initial: "1s", Max: "1m"},
 		PositionX: 250,
 		PositionY: 150,
 		Enabled:   true,
@@ -220,6 +220,7 @@ func TestWorkflowNode_JSONSerialization(t *testing.T) {
 	assert.Contains(t, string(jsonData), `"id":"node-123"`)
 	assert.Contains(t, string(jsonData), `"type":"httprequest"`)
 	assert.Contains(t, string(jsonData), `"name":"Fetch User Data"`)
+	assert.Contains(t, string(jsonData), `"retry":{"attempts":3,"initial":"1s","max":"1m"}`)
 
 	// Deserialize from JSON
 	var deserialized WorkflowNode
@@ -235,6 +236,7 @@ func TestWorkflowNode_JSONSerialization(t *testing.T) {
 	assert.Equal(t, original.PositionX, deserialized.PositionX)
 	assert.Equal(t, original.PositionY, deserialized.PositionY)
 	assert.Equal(t, original.Enabled, deserialized.Enabled)
+	assert.Equal(t, original.Retry, deserialized.Retry)
 
 	// Verify config deep equality
 	assert.Equal(t, original.Config["url"], deserialized.Config["url"])

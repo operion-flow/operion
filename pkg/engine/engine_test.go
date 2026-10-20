@@ -151,9 +151,7 @@ func TestRunExecutesEveryParallelBranch(t *testing.T) {
 }
 
 func TestRunFollowsConnectedErrorPort(t *testing.T) {
-	stubs := map[string]protocol.Node{
-		failingType: stubNode{outputs: map[string]models.NodeResult{errorPort: {Data: map[string]any{"error": "boom"}}}},
-	}
+	stubs := erroring()
 	wf := workflow(
 		[]*models.WorkflowNode{trigger(), node("step", failingType, nil), logNode("recover")},
 		connect("trigger:success", "step:main"),
@@ -174,7 +172,7 @@ func TestRunFailsOnUnhandledErrorPort(t *testing.T) {
 		message string
 	}{
 		{name: "error field", result: models.NodeResult{Error: "kaboom"}, message: `node "step": kaboom`},
-		{name: "error in data", result: models.NodeResult{Data: map[string]any{"error": "boom"}}, message: `node "step": boom`},
+		{name: "error in data", result: models.NodeResult{Data: map[string]any{"error": boom}}, message: `node "step": boom`},
 		{name: "no message", result: models.NodeResult{}, message: `node "step": failed without an error message`},
 	}
 

@@ -86,7 +86,7 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 	} else {
 		execution.Variables = workflow.Variables
 
-		deferred, err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data})
+		deferred, err := w.engine.Run(ctx, workflow, execution, engine.Activation{NodeID: job.NodeID, Port: job.Port, Data: job.Data, Attempt: job.Attempt})
 		if err != nil {
 			return nil, err
 		}
@@ -99,6 +99,7 @@ func (w *Worker) process(ctx context.Context, job models.Job, execution *models.
 				Port:        later.Port,
 				Data:        later.Data,
 				RunAt:       later.RunAt,
+				Attempt:     later.Attempt,
 			})
 		}
 	}
