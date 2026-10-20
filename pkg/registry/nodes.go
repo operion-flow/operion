@@ -5,7 +5,6 @@ import (
 	"github.com/dukex/operion/pkg/nodes/conditional"
 	"github.com/dukex/operion/pkg/nodes/httprequest"
 	"github.com/dukex/operion/pkg/nodes/log"
-	"github.com/dukex/operion/pkg/nodes/notify"
 	switchnode "github.com/dukex/operion/pkg/nodes/switch"
 	"github.com/dukex/operion/pkg/nodes/transform"
 	"github.com/dukex/operion/pkg/nodes/trigger"
@@ -30,8 +29,6 @@ func (r *Registry) RegisterDefaultNodes() {
 	r.RegisterNode(switchnode.NewSwitchNodeFactory())
 	r.RegisterNode(wait.NewWaitFactory())
 	r.RegisterNode(wait.NewWaitUntilFactory())
-
-	r.RegisterNode(notify.NewNotifyNodeFactory())
 
 	// Register Trigger nodes
 	r.RegisterNode(trigger.NewWebhookTriggerNodeFactory())
