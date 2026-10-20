@@ -84,6 +84,9 @@ curl -s localhost:9091/executions/<execution-id> -H 'X-Tenant-Id: acme'
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:event` and `trigger:kafka` workflows; Kafka is off when empty |
 | `--kafka-group` | `KAFKA_GROUP` | `operion` | Kafka consumer group |
+| `--schema-registry-url` | `SCHEMA_REGISTRY_URL` | | Confluent Schema Registry for `avro` and `protobuf` events; they are skipped when empty |
+| `--schema-registry-username` | `SCHEMA_REGISTRY_USERNAME` | | Schema Registry basic auth username |
+| `--schema-registry-password` | `SCHEMA_REGISTRY_PASSWORD` | | Schema Registry basic auth password |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -132,7 +135,14 @@ The platform operator registers the events tenants can build on with `PUT /platf
 }
 ```
 
-`tenant_from` says where the tenant is: `payload` reads the dotted path `tenant_key` from the message, and `header` reads the Kafka header named `tenant_key`. A message on the topic starts only the published `trigger:event` workflows of that tenant. A message that is not a JSON object, or has no tenant, is logged and skipped. Only `json` is decoded for now; `avro` and `protobuf` definitions are skipped until their decoders land. Publishing a workflow whose `trigger:event` names an event missing from the catalog returns 422.
+`tenant_from` says where the tenant is: `payload` reads the dotted path `tenant_key` from the decoded message, and `header` reads the Kafka header named `tenant_key`. A message on the topic starts only the published `trigger:event` workflows of that tenant. Publishing a workflow whose `trigger:event` names an event missing from the catalog returns 422.
+
+`format` says how the message is decoded into `payload`:
+
+- `json`: the message is a JSON object.
+- `avro` and `protobuf`: the message is in the Confluent wire format (a zero byte, the 4-byte schema ID and, for protobuf, the message indexes), and its schema is fetched from `--schema-registry-url` by ID once per process. Protobuf messages follow the protobuf JSON mapping (64-bit integers become strings) with the field names of the `.proto`, fields left at their default value included. Schemas with references to other subjects are not supported yet.
+
+A message that cannot be decoded, has no tenant, or whose schema is not in the registry is logged and skipped. Without `--schema-registry-url`, `avro` and `protobuf` events are skipped too. When the registry cannot be reached or answers with an error, the message is not committed and is read again.
 
 Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Every action has an `error` port; an error on an unconnected `error` port fails the execution.
 

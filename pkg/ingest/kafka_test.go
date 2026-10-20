@@ -72,7 +72,7 @@ func handleKafka(t *testing.T, triggers fakeKafkaTriggers, starter *fakeStarter,
 func handleEvents(t *testing.T, triggers fakeKafkaTriggers, catalog fakeCatalog, starter *fakeStarter, message ingest.KafkaMessage) error {
 	t.Helper()
 
-	return ingest.NewKafka(triggers, catalog, starter, slog.New(slog.DiscardHandler)).Handle(t.Context(), message)
+	return ingest.NewKafka(triggers, catalog, starter, ingest.SchemaRegistry{}, slog.New(slog.DiscardHandler)).Handle(t.Context(), message)
 }
 
 func listening() fakeKafkaTriggers {
@@ -253,7 +253,7 @@ func TestEventsThatCannotBeReadAreSkipped(t *testing.T) {
 		"no tenant":          {definition: employeeCreatedDefinition(models.TenantFromPayload, "company_id"), value: `{"name": "Ana"}`},
 		"tenant not a value": {definition: employeeCreatedDefinition(models.TenantFromPayload, "company_id.id"), value: acmeEmployee},
 		"no tenant header":   {definition: employeeCreatedDefinition(models.TenantFromHeader, "x-company-id"), value: acmeEmployee},
-		"unsupported format": {definition: avro, value: acmeEmployee},
+		"no schema registry": {definition: avro, value: acmeEmployee},
 	}
 
 	for name, test := range tests {
