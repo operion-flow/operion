@@ -33,6 +33,7 @@ const (
 	jsonType    = "application/json"
 	webhookPath = "/employees"
 	tenant      = "acme"
+	apiToken    = "e2e-token"
 )
 
 var (
@@ -159,7 +160,7 @@ func startServe(t *testing.T) string {
 
 	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, "serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn") //nolint:gosec // runs the binary this test just built
 
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL)
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL, "OPERION_API_TOKEN="+apiToken)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -207,6 +208,7 @@ func fetch(ctx context.Context, method, target string, body any) (int, map[strin
 
 	req.Header.Set("Content-Type", jsonType)
 	req.Header.Set("X-Tenant-Id", tenant)
+	req.Header.Set("Authorization", "Bearer "+apiToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -356,4 +358,31 @@ func TestPublishRejectsAnUndeclaredPort(t *testing.T) {
 	status, stored := call(t, http.MethodGet, base+"/workflows/"+id, nil)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "draft", stored[statusKey])
+}
+
+func TestOnlyTheAPINeedsTheToken(t *testing.T) {
+	base := startServe(t)
+
+	statusWithout := func(method, path string) int {
+		req, err := http.NewRequestWithContext(t.Context(), method, base+path, strings.NewReader(`{}`))
+		require.NoError(t, err)
+
+		req.Header.Set("Content-Type", jsonType)
+		req.Header.Set("X-Tenant-Id", tenant)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		_ = resp.Body.Close()
+
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusUnauthorized, statusWithout(http.MethodGet, "/workflows"))
+	assert.Equal(t, http.StatusUnauthorized, statusWithout(http.MethodPut, "/platform/node-types/create_benefit"))
+	assert.Equal(t, http.StatusOK, statusWithout(http.MethodGet, "/readyz"))
+	assert.Equal(t, http.StatusNotFound, statusWithout(http.MethodPost, "/webhooks/"+tenant+webhookPath))
+
+	status, _ := call(t, http.MethodGet, base+"/workflows", nil)
+	assert.Equal(t, http.StatusOK, status)
 }

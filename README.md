@@ -45,22 +45,22 @@ It prints the execution as JSON, with `"status": "completed"` and `"result": "he
 `operion serve` runs the API, the webhooks, the scheduler and the worker in one process. It applies its migrations on start.
 
 ```bash
-DATABASE_URL="postgres://localhost:5432/operion?sslmode=disable" ./operion serve
+DATABASE_URL="postgres://localhost:5432/operion?sslmode=disable" OPERION_API_TOKEN=dev-token ./operion serve
 ```
 
 Create the workflow, publish it, call its webhook and read the execution:
 
 ```bash
-curl -s -X POST localhost:9091/workflows -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' -d @workflow.json
+curl -s -X POST localhost:9091/workflows -H 'Authorization: Bearer dev-token' -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' -d @workflow.json
 # {"id": "<workflow-id>", "status": "draft", "tenant_id": "acme", ...}
 
-curl -s -X POST localhost:9091/workflows/<workflow-id>/publish -H 'X-Tenant-Id: acme'
+curl -s -X POST localhost:9091/workflows/<workflow-id>/publish -H 'Authorization: Bearer dev-token' -H 'X-Tenant-Id: acme'
 # {"id": "<workflow-id>", "status": "published", ...}
 
 curl -s -X POST localhost:9091/webhooks/acme/greet -H 'Content-Type: application/json' -d '{"name": "Ana"}'
 # {"executions": ["<execution-id>"]}
 
-curl -s localhost:9091/executions/<execution-id> -H 'X-Tenant-Id: acme'
+curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-token' -H 'X-Tenant-Id: acme'
 # {"id": "<execution-id>", "status": "completed", "node_results": {...}, ...}
 ```
 
@@ -80,6 +80,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'X-Tenant-Id: acme'
 |---|---|---|---|
 | `--database-url` | `DATABASE_URL` | | PostgreSQL connection URL (required) |
 | `--port` | `PORT` | `9091` | HTTP port |
+| `--api-token` | `OPERION_API_TOKEN` | | Bearer token every API route requires (required) |
 | `--poll-interval` | | `1s` | How long the worker and the scheduler wait when nothing is due |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:event` and `trigger:kafka` workflows; Kafka is off when empty |
@@ -92,7 +93,9 @@ Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORT
 
 ## HTTP API
 
-Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` header. A request without it is a 400, and another tenant's workflow or execution is a 404. Authentication will replace the header.
+Every route below except the webhooks needs `Authorization: Bearer <token>` with the token given to `serve`; without it the answer is a 401. The health checks `/livez` and `/readyz` are open too. The token belongs to a trusted backend, such as the platform's own backend for its users, and it can call every route, including `/platform/*`.
+
+Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` header. A request without it is a 400, and another tenant's workflow or execution is a 404. Operion trusts the header, so the backend holding the token decides which tenant a call acts for.
 
 | Method and path | Description |
 |---|---|
@@ -157,7 +160,7 @@ Node configs are Go templates. A node reads earlier results with `{{.node_result
 A node type can live in any service that speaks HTTP. The platform registers it once:
 
 ```bash
-curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Content-Type: application/json' -d '{
+curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' -d '{
   "name": "Criar benefício",
   "url": "http://benefits.internal/operion",
   "outputs": ["approved", "rejected"],
