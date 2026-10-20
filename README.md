@@ -191,6 +191,25 @@ When the node runs, Operion sends `POST <url>` with `Content-Type: application/j
 
 A non-2xx status, a timeout, a body that is not JSON or a port outside `outputs` goes to the `error` port with `{"error": "<reason>"}`. Answering `"port": "error"` does the same with your own data. Responses are read up to 1 MiB.
 
+Register the type with a `"secret"` of at least 16 characters and every call is signed. The API stores the secret and never returns it. Each request carries `X-Operion-Timestamp`, in Unix seconds, and `X-Operion-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` with the secret. The service recomputes it, compares in constant time and refuses old timestamps:
+
+```go
+func verified(secret string, r *http.Request, body []byte) bool {
+	timestamp := r.Header.Get("X-Operion-Timestamp")
+
+	sent, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || time.Since(time.Unix(sent, 0)).Abs() > 5*time.Minute {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "."))
+	mac.Write(body)
+
+	return hmac.Equal([]byte(r.Header.Get("X-Operion-Signature")), []byte("sha256="+hex.EncodeToString(mac.Sum(nil))))
+}
+```
+
 ## Development
 
 ```bash

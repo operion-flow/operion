@@ -3,11 +3,15 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
@@ -20,6 +24,8 @@ const (
 	errorPort       = "error"
 	defaultTimeout  = 30
 	maxResponseSize = 1 << 20
+	timestampHeader = "X-Operion-Timestamp"
+	signatureHeader = "X-Operion-Signature"
 )
 
 func Normalize(nodeType *models.RemoteNodeType) {
@@ -151,6 +157,12 @@ func (n *Node) call(body []byte) (*response, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 
+	if n.nodeType.Secret != "" {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		req.Header.Set(timestampHeader, timestamp)
+		req.Header.Set(signatureHeader, sign(n.nodeType.Secret, timestamp, body))
+	}
+
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -173,6 +185,14 @@ func (n *Node) call(body []byte) (*response, error) {
 	}
 
 	return &answer, nil
+}
+
+func sign(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "."))
+	mac.Write(body)
+
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (n *Node) fail(err error) map[string]models.NodeResult {
