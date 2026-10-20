@@ -61,6 +61,10 @@ func insertStart(ctx context.Context, tx *sql.Tx, execution *models.ExecutionCon
 		return nil
 	}
 
+	return insertJob(ctx, tx, job)
+}
+
+func insertJob(ctx context.Context, tx *sql.Tx, job models.Job) error {
 	data, err := json.Marshal(job.Data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal job data: %w", err)
@@ -79,7 +83,7 @@ func insertStart(ctx context.Context, tx *sql.Tx, execution *models.ExecutionCon
 
 func (j *Jobs) ProcessNext(
 	ctx context.Context,
-	process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) error,
+	process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) ([]models.Job, error),
 ) (bool, error) {
 	tx, err := j.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -124,7 +128,22 @@ func (j *Jobs) ProcessNext(
 		return true, fmt.Errorf("failed to load execution %s: %w", job.ExecutionID, err)
 	}
 
-	if err := process(ctx, job, execution); err != nil {
+	next, err := process(ctx, job, execution)
+	if err != nil {
+		return true, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
+		return true, fmt.Errorf("failed to delete job %s: %w", job.ID, err)
+	}
+
+	for _, later := range next {
+		if err := insertJob(ctx, tx, later); err != nil {
+			return true, err
+		}
+	}
+
+	if err := settle(ctx, tx, execution); err != nil {
 		return true, err
 	}
 
@@ -142,11 +161,40 @@ func (j *Jobs) ProcessNext(
 		return true, fmt.Errorf("failed to update execution %s: %w", execution.ID, err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
-		return true, fmt.Errorf("failed to delete job %s: %w", job.ID, err)
+	return true, tx.Commit()
+}
+
+func settle(ctx context.Context, tx *sql.Tx, execution *models.ExecutionContext) error {
+	if execution.Status == models.ExecutionStatusFailed {
+		_, err := tx.ExecContext(ctx, `
+			DELETE FROM jobs WHERE id IN (
+				SELECT id FROM jobs WHERE execution_id = $1 FOR UPDATE SKIP LOCKED
+			)
+		`, execution.ID)
+		if err != nil {
+			return fmt.Errorf("failed to drop jobs of failed execution %s: %w", execution.ID, err)
+		}
+
+		return nil
 	}
 
-	return true, tx.Commit()
+	if execution.Status != models.ExecutionStatusCompleted {
+		return nil
+	}
+
+	var pending bool
+
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM jobs WHERE execution_id = $1)`, execution.ID).Scan(&pending)
+	if err != nil {
+		return fmt.Errorf("failed to check pending jobs of execution %s: %w", execution.ID, err)
+	}
+
+	if pending {
+		execution.Status = models.ExecutionStatusRunning
+		execution.CompletedAt = nil
+	}
+
+	return nil
 }
 
 func executionColumns(execution *models.ExecutionContext) ([]any, error) {

@@ -19,6 +19,8 @@ const (
 	webhookNodeType = "trigger:webhook"
 	logNodeType     = "log"
 	messageKey      = "message"
+	holdNodeID      = "hold"
+	bodyKey         = "body"
 )
 
 func startJob(ctx context.Context, t *testing.T, p *postgresql.Persistence, runAt time.Time) (models.Job, *models.ExecutionContext) {
@@ -33,7 +35,7 @@ func startJob(ctx context.Context, t *testing.T, p *postgresql.Persistence, runA
 		WorkflowGroupID: workflowID,
 	}))
 
-	data := map[string]any{"body": map[string]any{"employee": "Ana"}}
+	data := map[string]any{bodyKey: map[string]any{"employee": "Ana"}}
 	execution := &models.ExecutionContext{
 		ID:          uuid.NewString(),
 		WorkflowID:  workflowID,
@@ -60,11 +62,11 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 	p, ctx, _ := setupTestDB(t)
 	started, execution := startJob(ctx, t, p, time.Now().Add(-time.Second))
 
-	processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, job models.Job, loaded *models.ExecutionContext) error {
+	processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, job models.Job, loaded *models.ExecutionContext) ([]models.Job, error) {
 		assert.Equal(t, started.ID, job.ID)
 		assert.Equal(t, triggerNodeID, job.NodeID)
 		assert.Equal(t, "external", job.Port)
-		assert.Equal(t, "Ana", job.Data["body"].(map[string]any)["employee"])
+		assert.Equal(t, "Ana", job.Data[bodyKey].(map[string]any)["employee"])
 		assert.Equal(t, execution.ID, loaded.ID)
 		assert.Equal(t, execution.WorkflowID, loaded.WorkflowID)
 
@@ -73,7 +75,7 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 		loaded.NodeResults[greetNodeID] = models.NodeResult{NodeID: greetNodeID, Data: map[string]any{"text": "hi"}}
 		loaded.CompletedAt = &now
 
-		return nil
+		return nil, nil
 	})
 
 	require.NoError(t, err)
@@ -85,10 +87,10 @@ func TestJobsProcessNextRunsDueJobAndRemovesIt(t *testing.T) {
 	assert.Equal(t, "hi", saved.NodeResults[greetNodeID].Data["text"])
 	assert.NotNil(t, saved.CompletedAt)
 
-	processed, err = p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) error {
+	processed, err = p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) ([]models.Job, error) {
 		t.Fatal("no job should be left")
 
-		return nil
+		return nil, nil
 	})
 	require.NoError(t, err)
 	assert.False(t, processed)
@@ -99,10 +101,10 @@ func TestJobsProcessNextKeepsJobWhenProcessFails(t *testing.T) {
 	_, execution := startJob(ctx, t, p, time.Now().Add(-time.Second))
 	errProcess := errors.New("process failed")
 
-	processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, _ models.Job, loaded *models.ExecutionContext) error {
+	processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, _ models.Job, loaded *models.ExecutionContext) ([]models.Job, error) {
 		loaded.Status = models.ExecutionStatusFailed
 
-		return errProcess
+		return nil, errProcess
 	})
 
 	require.ErrorIs(t, err, errProcess)
@@ -112,8 +114,8 @@ func TestJobsProcessNextKeepsJobWhenProcessFails(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, models.ExecutionStatusRunning, saved.Status)
 
-	processed, err = p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) error {
-		return nil
+	processed, err = p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) ([]models.Job, error) {
+		return nil, nil
 	})
 	require.NoError(t, err)
 	assert.True(t, processed)
@@ -129,21 +131,21 @@ func TestJobsProcessNextSkipsLockedAndFutureJobs(t *testing.T) {
 	done := make(chan error)
 
 	go func() {
-		_, err := p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) error {
+		_, err := p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) ([]models.Job, error) {
 			close(claimed)
 			<-release
 
-			return nil
+			return nil, nil
 		})
 		done <- err
 	}()
 
 	<-claimed
 
-	processed, err := p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) error {
+	processed, err := p.Jobs().ProcessNext(ctx, func(context.Context, models.Job, *models.ExecutionContext) ([]models.Job, error) {
 		t.Error("the due job is locked and the other one is in the future")
 
-		return nil
+		return nil, nil
 	})
 	require.NoError(t, err)
 	assert.False(t, processed)
@@ -163,10 +165,10 @@ func TestJobsStartIgnoresARepeatedExecution(t *testing.T) {
 	var claimed []string
 
 	for {
-		processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, next models.Job, _ *models.ExecutionContext) error {
+		processed, err := p.Jobs().ProcessNext(ctx, func(_ context.Context, next models.Job, _ *models.ExecutionContext) ([]models.Job, error) {
 			claimed = append(claimed, next.ID)
 
-			return nil
+			return nil, nil
 		})
 		require.NoError(t, err)
 
