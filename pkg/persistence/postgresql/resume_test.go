@@ -75,7 +75,7 @@ func TestResumeContinuesAWaitingNodeWithThePostedData(t *testing.T) {
 	reg.RegisterDefaultNodes()
 
 	app := fiber.New()
-	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, engine.New(reg), p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app)
+	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, engine.New(reg), p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app, apiToken)
 
 	status, body := request(t, app, http.MethodPost, "/executions/"+executionID+"/nodes/greet/resume", `{}`)
 	require.Equal(t, http.StatusConflict, status, body)
