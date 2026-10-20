@@ -14,17 +14,23 @@ import (
 type PublishingService struct {
 	persistence persistence.Persistence
 	validator   Validator
+	catalog     EventCatalog
 }
 
 type Validator interface {
 	Validate(ctx context.Context, workflow *models.Workflow) error
 }
 
+type EventCatalog interface {
+	Get(ctx context.Context, key string) (*models.EventDefinition, error)
+}
+
 // NewPublishingService creates a new workflow publishing service.
-func NewPublishingService(persistence persistence.Persistence, validator Validator) *PublishingService {
+func NewPublishingService(persistence persistence.Persistence, validator Validator, catalog EventCatalog) *PublishingService {
 	return &PublishingService{
 		persistence: persistence,
 		validator:   validator,
+		catalog:     catalog,
 	}
 }
 
@@ -44,7 +50,12 @@ func (s *PublishingService) PublishWorkflow(ctx context.Context, workflowID stri
 		return nil, fmt.Errorf("%w: %w", ErrInvalidWorkflow, err)
 	}
 
-	if err := s.validator.Validate(ctx, workflow); err != nil {
+	missing, err := s.missingEvents(ctx, workflow)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := errors.Join(append(missing, s.validator.Validate(ctx, workflow))...); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidWorkflow, err)
 	}
 
@@ -75,6 +86,28 @@ func (s *PublishingService) GetCurrentWorkflow(ctx context.Context, workflowGrou
 // GetDraftWorkflow returns the draft version of a workflow group.
 func (s *PublishingService) GetDraftWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) {
 	return s.persistence.WorkflowRepository().GetDraftWorkflow(ctx, workflowGroupID)
+}
+
+func (s *PublishingService) missingEvents(ctx context.Context, workflow *models.Workflow) ([]error, error) {
+	var missing []error
+
+	for _, node := range workflow.Nodes {
+		key, _ := node.Config["event"].(string)
+		if node.Type != models.NodeTypeTriggerEvent || key == "" {
+			continue
+		}
+
+		_, err := s.catalog.Get(ctx, key)
+
+		switch {
+		case errors.Is(err, persistence.ErrEventDefinitionNotFound):
+			missing = append(missing, fmt.Errorf("node %q: event %q is not in the catalog", node.ID, key))
+		case err != nil:
+			return nil, err
+		}
+	}
+
+	return missing, nil
 }
 
 // validateForPublishing ensures a workflow is ready to be published.

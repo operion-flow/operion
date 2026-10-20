@@ -63,7 +63,15 @@ func (e *EventDefinitions) Get(ctx context.Context, key string) (*models.EventDe
 }
 
 func (e *EventDefinitions) List(ctx context.Context) ([]*models.EventDefinition, error) {
-	rows, err := e.db.QueryContext(ctx, `SELECT `+eventDefinitionColumns+` FROM event_definitions ORDER BY name, key`)
+	return e.query(ctx, `SELECT `+eventDefinitionColumns+` FROM event_definitions ORDER BY name, key`)
+}
+
+func (e *EventDefinitions) ByTopic(ctx context.Context, topic string) ([]*models.EventDefinition, error) {
+	return e.query(ctx, `SELECT `+eventDefinitionColumns+` FROM event_definitions WHERE topic = $1 ORDER BY key`, topic)
+}
+
+func (e *EventDefinitions) query(ctx context.Context, query string, args ...any) ([]*models.EventDefinition, error) {
+	rows, err := e.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list event definitions: %w", err)
 	}

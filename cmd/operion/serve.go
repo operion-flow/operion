@@ -34,7 +34,7 @@ func newServeCommand() *cli.Command {
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
 			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the background loops wait when nothing is due", Value: time.Second},
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
-			&cli.StringSliceFlag{Name: "kafka-brokers", Usage: "Kafka brokers for trigger:kafka workflows; Kafka is off when empty", Sources: cli.EnvVars("KAFKA_BROKERS")},
+			&cli.StringSliceFlag{Name: "kafka-brokers", Usage: "Kafka brokers for trigger:event and trigger:kafka workflows; Kafka is off when empty", Sources: cli.EnvVars("KAFKA_BROKERS")},
 			&cli.StringFlag{Name: "kafka-group", Usage: "Kafka consumer group", Value: "operion", Sources: cli.EnvVars("KAFKA_GROUP")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
@@ -104,7 +104,7 @@ func serve(ctx context.Context, options serveOptions) error {
 			})
 		}
 
-		handle := ingest.NewKafka(store, jobs, logger).Handle
+		handle := ingest.NewKafka(store, store.EventDefinitions(), jobs, logger).Handle
 		loops = append(loops, ingest.NewKafkaConsumer(newReader, store, handle, options.pollInterval, logger).Run)
 	}
 
@@ -112,7 +112,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
 	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
 	ingest.NewWebhook(store, jobs, logger).Register(app)
-	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e), store.ExecutionContextRepository(), store.EventDefinitions()).Register(app)
+	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e, store.EventDefinitions()), store.ExecutionContextRepository(), store.EventDefinitions()).Register(app)
 
 	var running sync.WaitGroup
 
