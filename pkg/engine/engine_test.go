@@ -8,6 +8,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/protocol"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +57,7 @@ func (c creator) CreateNode(ctx context.Context, nodeType, nodeID string, config
 
 func newEngine(stubs map[string]protocol.Node) *engine.Engine {
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 
 	return engine.New(creator{registry: reg, stubs: stubs})
 }

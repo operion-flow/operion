@@ -9,6 +9,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +34,7 @@ func (r remoteTypes) Get(_ context.Context, id string) (*models.RemoteNodeType, 
 
 func remoteEngine(url string) *engine.Engine {
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 	reg.UseRemoteTypes(remoteTypes{"create_benefit": {
 		ID:      "create_benefit",
 		URL:     url,

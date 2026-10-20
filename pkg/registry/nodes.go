@@ -12,8 +12,8 @@ import (
 	"github.com/dukex/operion/pkg/nodes/wait"
 )
 
-// RegisterDefaultNodes registers all built-in node factories with the registry.
-func (r *Registry) RegisterDefaultNodes() {
+// RegisterDefaultNodes registers all built-in node factories with the registry, sending email through mail.
+func (r *Registry) RegisterDefaultNodes(mail notify.SMTP) {
 	// Register HTTP Request node
 	r.RegisterNode(httprequest.NewHTTPRequestNodeFactory())
 
@@ -31,7 +31,7 @@ func (r *Registry) RegisterDefaultNodes() {
 	r.RegisterNode(wait.NewWaitFactory())
 	r.RegisterNode(wait.NewWaitUntilFactory())
 
-	r.RegisterNode(notify.NewNotifyNodeFactory())
+	r.RegisterNode(notify.NewNotifyNodeFactory(mail))
 
 	// Register Trigger nodes
 	r.RegisterNode(trigger.NewWebhookTriggerNodeFactory())

@@ -9,6 +9,7 @@ import (
 	"github.com/dukex/operion/pkg/api"
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/workflow"
@@ -72,7 +73,7 @@ func TestResumeContinuesAWaitingNodeWithThePostedData(t *testing.T) {
 	executionID := startWaitingExecution(ctx, t, p, "{{.node_results.hold.decision}} for {{.node_results.trigger.body.employee}}")
 
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 
 	app := fiber.New()
 	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, engine.New(reg), p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app)

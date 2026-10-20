@@ -8,6 +8,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/google/uuid"
@@ -178,7 +179,7 @@ func (c testCatalog) Get(_ context.Context, key string) (*models.EventDefinition
 
 func newTestValidator() *engine.Engine {
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 
 	return engine.New(reg)
 }

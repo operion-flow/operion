@@ -9,6 +9,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
@@ -165,7 +166,7 @@ func startFlow(ctx context.Context, t *testing.T, p *postgresql.Persistence, ste
 	require.NoError(t, p.Jobs().Start(ctx, execution, models.Job{ID: uuid.NewString(), ExecutionID: execution.ID, NodeID: activation.NodeID, Port: activation.Port, Data: activation.Data, RunAt: time.Now().UTC()}))
 
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 
 	workerCtx, stop := context.WithCancel(ctx)
 	t.Cleanup(stop)

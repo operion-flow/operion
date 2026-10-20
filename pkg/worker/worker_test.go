@@ -11,6 +11,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/stretchr/testify/assert"
@@ -95,7 +96,7 @@ func job(executionID, workflowID string) pending {
 
 func newWorker(jobs *fakeJobs, workflows fakeWorkflows, logs io.Writer) *worker.Worker {
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 
 	return worker.New(jobs, workflows, engine.New(reg), slog.New(slog.NewTextHandler(logs, nil)), time.Millisecond)
 }

@@ -7,14 +7,16 @@ import (
 	"github.com/dukex/operion/pkg/protocol"
 )
 
-type NotifyNodeFactory struct{}
+type NotifyNodeFactory struct {
+	mail SMTP
+}
 
-func NewNotifyNodeFactory() protocol.NodeFactory {
-	return &NotifyNodeFactory{}
+func NewNotifyNodeFactory(mail SMTP) protocol.NodeFactory {
+	return &NotifyNodeFactory{mail: mail}
 }
 
 func (f *NotifyNodeFactory) Create(_ context.Context, id string, config map[string]any) (protocol.Node, error) {
-	return NewNotifyNode(id, config)
+	return NewNotifyNode(id, config, f.mail)
 }
 
 func (f *NotifyNodeFactory) ID() string {
@@ -26,7 +28,7 @@ func (f *NotifyNodeFactory) Name() string {
 }
 
 func (f *NotifyNodeFactory) Description() string {
-	return "Sends a templated message to a Slack incoming webhook or by email over SMTP"
+	return "Sends a templated message to a Slack incoming webhook, or by email through the server's SMTP"
 }
 
 func (f *NotifyNodeFactory) Schema() map[string]any {
@@ -39,25 +41,18 @@ func (f *NotifyNodeFactory) Schema() map[string]any {
 	return map[string]any{
 		typeKey: "object",
 		"properties": map[string]any{
-			keyChannel:          map[string]any{typeKey: "string", "enum": []string{ChannelSlack, ChannelEmail}},
-			keyMessage:          text("Message text, or email body. Supports templating, e.g. Welcome, {{.trigger_data.body.name}}"),
-			keyWebhookURLEnv:    text("Slack: environment variable that holds the incoming webhook URL"),
-			"smtp_host":         text("Email: SMTP host"),
-			keySMTPPort:         map[string]any{typeKey: "integer", "default": defaultSMTPPort},
-			"smtp_username_env": text("Email: environment variable that holds the SMTP username"),
-			"smtp_password_env": text("Email: environment variable that holds the SMTP password"),
-			keyFrom:             text("Email: sender address"),
-			keyTo:               text("Email: comma-separated recipients. Supports templating, e.g. {{.trigger_data.body.manager_email}}"),
-			keySubject:          text("Email: subject. Supports templating"),
+			keyChannel:    map[string]any{typeKey: "string", "enum": []string{ChannelSlack, ChannelEmail}},
+			keyMessage:    text("Message text, or email body. Supports templating, e.g. Welcome, {{.trigger_data.body.name}}"),
+			keyWebhookURL: text("Slack: incoming webhook URL"),
+			keyTo:         text("Email: comma-separated recipients. Supports templating, e.g. {{.trigger_data.body.manager_email}}"),
+			keySubject:    text("Email: subject. Supports templating"),
 		},
 		"required": []string{keyChannel, keyMessage},
 		"examples": []map[string]any{
-			{keyChannel: ChannelSlack, keyMessage: "Bem-vinda, {{.trigger_data.body.name}}", keyWebhookURLEnv: "SLACK_WEBHOOK_URL"},
+			{keyChannel: ChannelSlack, keyMessage: "Bem-vinda, {{.trigger_data.body.name}}", keyWebhookURL: "https://hooks.slack.com/services/T000/B000/XXXX"},
 			{
 				keyChannel: ChannelEmail, keyMessage: "{{.trigger_data.body.name}} joined today",
-				"smtp_host": "smtp.example.com", keyFrom: "operion@example.com",
 				keyTo: "{{.trigger_data.body.manager_email}}", keySubject: "New hire",
-				"smtp_username_env": "SMTP_USERNAME", "smtp_password_env": "SMTP_PASSWORD",
 			},
 		},
 	}

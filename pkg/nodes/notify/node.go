@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
-	"os"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,38 +25,44 @@ const (
 	ChannelSlack = "slack"
 	ChannelEmail = "email"
 
-	defaultSMTPPort = 587
-
-	keyChannel       = "channel"
-	keyMessage       = "message"
-	keyWebhookURLEnv = "webhook_url_env"
-	keySMTPPort      = "smtp_port"
-	keyFrom          = "from"
-	keyTo            = "to"
-	keySubject       = "subject"
+	keyChannel    = "channel"
+	keyMessage    = "message"
+	keyWebhookURL = "webhook_url"
+	keyTo         = "to"
+	keySubject    = "subject"
 )
 
+var (
+	errWebhookURL         = errors.New("slack needs 'webhook_url', the http(s) URL of the incoming webhook")
+	errEmailNotConfigured = errors.New("email is not configured on this server, the operator sets --smtp-host and --smtp-from")
+)
+
+// SMTP is the mail server the operator configures for email notifications.
+type SMTP struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+}
+
 type config struct {
-	channel       string
-	message       string
-	webhookURLEnv string
-	smtpHost      string
-	smtpPort      int
-	usernameEnv   string
-	passwordEnv   string
-	from          string
-	to            string
-	subject       string
+	channel    string
+	message    string
+	webhookURL string
+	to         string
+	subject    string
 }
 
 type NotifyNode struct {
 	id       string
 	config   config
+	mail     SMTP
 	client   *http.Client
 	sendMail func(addr string, auth smtp.Auth, from string, to []string, msg []byte) error
 }
 
-func NewNotifyNode(id string, raw map[string]any) (*NotifyNode, error) {
+func NewNotifyNode(id string, raw map[string]any, mail SMTP) (*NotifyNode, error) {
 	cfg, err := parseConfig(raw)
 	if err != nil {
 		return nil, err
@@ -65,21 +71,18 @@ func NewNotifyNode(id string, raw map[string]any) (*NotifyNode, error) {
 	return &NotifyNode{
 		id:       id,
 		config:   cfg,
+		mail:     mail,
 		client:   &http.Client{Timeout: 10 * time.Second},
 		sendMail: smtp.SendMail,
 	}, nil
 }
 
 func parseConfig(raw map[string]any) (config, error) {
-	cfg := config{smtpPort: defaultSMTPPort}
+	var cfg config
 
 	cfg.channel, _ = raw[keyChannel].(string)
 	cfg.message, _ = raw[keyMessage].(string)
-	cfg.webhookURLEnv, _ = raw[keyWebhookURLEnv].(string)
-	cfg.smtpHost, _ = raw["smtp_host"].(string)
-	cfg.usernameEnv, _ = raw["smtp_username_env"].(string)
-	cfg.passwordEnv, _ = raw["smtp_password_env"].(string)
-	cfg.from, _ = raw[keyFrom].(string)
+	cfg.webhookURL, _ = raw[keyWebhookURL].(string)
 	cfg.to, _ = raw[keyTo].(string)
 	cfg.subject, _ = raw[keySubject].(string)
 
@@ -87,23 +90,14 @@ func parseConfig(raw map[string]any) (config, error) {
 		return cfg, errors.New("missing required field 'message'")
 	}
 
-	if port, ok := raw[keySMTPPort]; ok {
-		parsed, err := parsePort(port)
-		if err != nil {
-			return cfg, err
-		}
-
-		cfg.smtpPort = parsed
-	}
-
 	switch cfg.channel {
 	case ChannelSlack:
-		if cfg.webhookURLEnv == "" {
-			return cfg, errors.New("slack needs 'webhook_url_env', the environment variable holding the webhook URL")
+		if !isHTTPURL(cfg.webhookURL) {
+			return cfg, errWebhookURL
 		}
 	case ChannelEmail:
-		if cfg.smtpHost == "" || cfg.from == "" || cfg.to == "" {
-			return cfg, errors.New("email needs 'smtp_host', 'from' and 'to'")
+		if cfg.to == "" {
+			return cfg, errors.New("email needs 'to'")
 		}
 	default:
 		return cfg, fmt.Errorf("'channel' must be %q or %q", ChannelSlack, ChannelEmail)
@@ -112,22 +106,10 @@ func parseConfig(raw map[string]any) (config, error) {
 	return cfg, nil
 }
 
-func parsePort(value any) (int, error) {
-	switch port := value.(type) {
-	case float64:
-		return int(port), nil
-	case int:
-		return port, nil
-	case string:
-		parsed, err := strconv.Atoi(port)
-		if err != nil {
-			return 0, fmt.Errorf("invalid 'smtp_port' %q", port)
-		}
+func isHTTPURL(raw string) bool {
+	parsed, err := url.Parse(raw)
 
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("invalid 'smtp_port' %v", value)
-	}
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func (n *NotifyNode) ID() string {
@@ -162,17 +144,12 @@ func (n *NotifyNode) Execute(ctx models.ExecutionContext, _ map[string]models.No
 }
 
 func (n *NotifyNode) sendSlack(message string) error {
-	url := os.Getenv(n.config.webhookURLEnv)
-	if url == "" {
-		return fmt.Errorf("environment variable %s is empty", n.config.webhookURLEnv)
-	}
-
 	body, err := json.Marshal(map[string]string{"text": message})
 	if err != nil {
 		return err
 	}
 
-	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx,gosec // nodes get no context yet, and the URL comes from an environment variable the operator sets
+	resp, err := n.client.Post(n.config.webhookURL, "application/json", bytes.NewReader(body)) //nolint:noctx // nodes get no context yet
 	if err != nil {
 		return fmt.Errorf("slack request failed: %w", err)
 	}
@@ -187,6 +164,10 @@ func (n *NotifyNode) sendSlack(message string) error {
 }
 
 func (n *NotifyNode) sendEmail(ctx *models.ExecutionContext, body string) ([]string, error) {
+	if n.mail.Host == "" || n.mail.From == "" {
+		return nil, errEmailNotConfigured
+	}
+
 	to, err := render(n.config.to, ctx)
 	if err != nil {
 		return nil, err
@@ -197,7 +178,7 @@ func (n *NotifyNode) sendEmail(ctx *models.ExecutionContext, body string) ([]str
 		return nil, err
 	}
 
-	for _, header := range []string{n.config.from, to, subject} {
+	for _, header := range []string{n.mail.From, to, subject} {
 		if strings.ContainsAny(header, "\r\n") {
 			return nil, errors.New("email headers cannot contain line breaks")
 		}
@@ -209,18 +190,18 @@ func (n *NotifyNode) sendEmail(ctx *models.ExecutionContext, body string) ([]str
 	}
 
 	var auth smtp.Auth
-	if n.config.usernameEnv != "" {
-		auth = smtp.PlainAuth("", os.Getenv(n.config.usernameEnv), os.Getenv(n.config.passwordEnv), n.config.smtpHost)
+	if n.mail.Username != "" {
+		auth = smtp.PlainAuth("", n.mail.Username, n.mail.Password, n.mail.Host)
 	}
 
-	msg := "From: " + n.config.from + "\r\n" +
+	msg := "From: " + n.mail.From + "\r\n" +
 		"To: " + strings.Join(recipients, ", ") + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
 		body
 
-	addr := net.JoinHostPort(n.config.smtpHost, strconv.Itoa(n.config.smtpPort))
-	if err := n.sendMail(addr, auth, n.config.from, recipients, []byte(msg)); err != nil {
+	addr := net.JoinHostPort(n.mail.Host, strconv.Itoa(n.mail.Port))
+	if err := n.sendMail(addr, auth, n.mail.From, recipients, []byte(msg)); err != nil {
 		return nil, fmt.Errorf("email delivery failed: %w", err)
 	}
 

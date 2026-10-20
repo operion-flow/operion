@@ -12,6 +12,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/registry"
 	cli "github.com/urfave/cli/v3"
 )
@@ -50,7 +51,7 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string,
 	}
 
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes()
+	reg.RegisterDefaultNodes(notify.SMTP{})
 	e := engine.New(reg)
 
 	if err := e.Validate(ctx, &workflow); err != nil {

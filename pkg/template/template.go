@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"text/template"
@@ -26,7 +25,6 @@ func RenderWithContext(input string, executionCtx *models.ExecutionContext) (any
 		"variables":    executionCtx.Variables,
 		"trigger_data": executionCtx.TriggerData,
 		"metadata":     executionCtx.Metadata,
-		"env":          getEnvVars(),
 		"execution": map[string]any{
 			"id":          executionCtx.ID,
 			"workflow_id": executionCtx.WorkflowID,
@@ -106,17 +104,4 @@ func Render(templateStr string, data any) (any, error) {
 
 	// // Return as string
 	return result, nil
-}
-
-func getEnvVars() map[string]any {
-	envMap := make(map[string]any)
-
-	for _, env := range os.Environ() {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) == 2 {
-			envMap[parts[0]] = parts[1]
-		}
-	}
-
-	return envMap
 }

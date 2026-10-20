@@ -3,6 +3,7 @@ package template
 import (
 	"testing"
 
+	"github.com/dukex/operion/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,18 +105,12 @@ func TestRender_ErrorHandling(t *testing.T) {
 	assert.Contains(t, err.Error(), "function \"nonexistent\" not defined")
 }
 
-func TestRender_EnvironmentVariables(t *testing.T) {
-	// Set test environment variable
-	t.Setenv("TEST_VAR", "test_value")
+func TestRenderWithContextDoesNotExposeTheEnvironment(t *testing.T) {
+	t.Setenv("OPERION_TEST_SECRET", "s3cr3t")
 
-	// Current implementation doesn't support env vars, but let's test what we expect
-	data := map[string]any{
-		"step_result": "some_value",
-	}
-
-	// This should fail with current implementation since env vars aren't supported
-	_, err := Render("{{ env.TEST_VAR }}", data)
-	assert.Error(t, err) // Expected to fail with current implementation
+	rendered, err := RenderWithContext("{{.env}}{{.env.OPERION_TEST_SECRET}}", &models.ExecutionContext{})
+	require.NoError(t, err)
+	assert.Equal(t, "<no value><no value>", rendered)
 }
 
 // Test for workflow variables integration.
