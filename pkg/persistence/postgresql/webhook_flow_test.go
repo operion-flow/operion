@@ -25,7 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const acmeTenant = "acme"
+const (
+	acmeTenant = "acme"
+	apiToken   = "operion-test-token"
+)
 
 func saveWebhookWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persistence, path string, status models.WorkflowStatus) string {
 	t.Helper()
@@ -72,6 +75,7 @@ func request(t *testing.T, app *fiber.App, method, target, body string) (int, ma
 
 	req := httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
 	req.Header.Set("X-Tenant-Id", acmeTenant)
+	req.Header.Set("Authorization", "Bearer "+apiToken)
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -94,7 +98,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	e := engine.New(reg)
 
 	app := fiber.New()
-	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app)
+	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app, apiToken)
 	ingest.NewWebhook(p, p.Jobs(), logger).Register(app)
 
 	definition := `{

@@ -22,7 +22,10 @@ import (
 
 var errStore = errors.New("store is down")
 
-const acmeTenant = "acme"
+const (
+	acmeTenant = "acme"
+	apiToken   = "operion-test-token"
+)
 
 type fakeWorkflows struct {
 	workflows map[string]*models.Workflow
@@ -196,6 +199,7 @@ func (f *fakeNodeTypes) Get(_ context.Context, id string) (*models.RemoteNodeTyp
 
 type server struct {
 	tenant     string
+	bearer     string
 	workflows  *fakeWorkflows
 	publisher  fakePublisher
 	executions fakeExecutions
@@ -208,11 +212,15 @@ func (s server) do(t *testing.T, method, target, body string) (int, map[string]a
 	t.Helper()
 
 	app := fiber.New()
-	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.resumer, s.nodeTypes).Register(app)
+	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.resumer, s.nodeTypes).Register(app, apiToken)
 
 	req := httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
 	if s.tenant != "" {
 		req.Header.Set("X-Tenant-Id", s.tenant)
+	}
+
+	if s.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+s.bearer)
 	}
 
 	resp, err := app.Test(req)
@@ -236,6 +244,7 @@ func (s server) do(t *testing.T, method, target, body string) (int, map[string]a
 func newServer() server {
 	return server{
 		tenant:    acmeTenant,
+		bearer:    apiToken,
 		workflows: &fakeWorkflows{workflows: map[string]*models.Workflow{"wf": {ID: "wf", Name: "Employee Criado", TenantID: acmeTenant}}},
 		executions: fakeExecutions{executions: map[string]*models.ExecutionContext{
 			"exec": {ID: "exec", WorkflowID: "wf", Status: models.ExecutionStatusCompleted},
@@ -628,4 +637,69 @@ func TestSaveNodeTypeStoreError(t *testing.T) {
 	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits"}`)
 
 	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+var allRoutes = [][2]string{
+	{http.MethodGet, "/workflows"},
+	{http.MethodPost, "/workflows"},
+	{http.MethodGet, "/workflows/wf"},
+	{http.MethodPost, "/workflows/wf/publish"},
+	{http.MethodGet, "/workflows/wf/executions"},
+	{http.MethodGet, "/executions/exec"},
+	{http.MethodPost, resumeHold},
+	{http.MethodPut, "/platform/event-definitions/employee_created"},
+	{http.MethodGet, "/platform/event-definitions/employee_created"},
+	{http.MethodGet, "/catalog/events"},
+	{http.MethodPut, "/platform/node-types/create_benefit"},
+	{http.MethodGet, "/platform/node-types/create_benefit"},
+}
+
+func TestEveryRouteRequiresTheBearerToken(t *testing.T) {
+	for _, bearer := range []string{"", "wrong", apiToken + "x"} {
+		s := newServer()
+		s.bearer = bearer
+
+		for _, request := range allRoutes {
+			status, body := s.do(t, request[0], request[1], `{"name": "Employee Criado", "description": "greets"}`)
+			assert.Equal(t, http.StatusUnauthorized, status, request[1])
+			assert.Equal(t, "a valid bearer token is required", body["detail"], request[1])
+		}
+
+		assert.Empty(t, s.workflows.created)
+		assert.Empty(t, s.resumer.resumed)
+		assert.Empty(t, s.nodeTypes.nodeTypes)
+	}
+}
+
+func TestUnauthorizedAnswersAskForABearerToken(t *testing.T) {
+	app := fiber.New()
+	s := newServer()
+	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.resumer, s.nodeTypes).Register(app, apiToken)
+
+	resp, err := app.Test(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/workflows", nil))
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, "Bearer", resp.Header.Get("WWW-Authenticate"))
+}
+
+func TestAnEmptyConfiguredTokenLetsNobodyIn(t *testing.T) {
+	app := fiber.New()
+	s := newServer()
+	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.resumer, s.nodeTypes).Register(app, "")
+
+	for _, header := range []string{"", "Bearer ", "Bearer"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/workflows", nil)
+		req.Header.Set("X-Tenant-Id", acmeTenant)
+		req.Header.Set("Authorization", header)
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+
+		_ = resp.Body.Close()
+
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, header)
+	}
 }
