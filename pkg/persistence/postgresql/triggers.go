@@ -15,17 +15,29 @@ func (p *Persistence) KafkaTriggers(ctx context.Context, topic string) ([]models
 	return p.publishedTriggers(ctx, models.NodeTypeTriggerKafka, "topic", topic, nil)
 }
 
+func (p *Persistence) EventTriggers(ctx context.Context, eventKey, tenantID string) ([]models.TriggerNodeMatch, error) {
+	return p.publishedTriggers(ctx, models.NodeTypeTriggerEvent, "event", eventKey, &tenantID)
+}
+
 func (p *Persistence) KafkaTopics(ctx context.Context) ([]string, error) {
 	rows, err := p.db.QueryContext(ctx, `
-		SELECT DISTINCT n.config->>'topic'
+		SELECT n.config->>'topic'
 		FROM workflow_nodes n
 		JOIN workflows w ON w.id = n.workflow_id
 		WHERE n.type = $1
 		  AND COALESCE(n.config->>'topic', '') <> ''
 		  AND w.status = $2
 		  AND w.deleted_at IS NULL
+		UNION
+		SELECT d.topic
+		FROM event_definitions d
+		JOIN workflow_nodes n ON n.config->>'event' = d.key
+		JOIN workflows w ON w.id = n.workflow_id
+		WHERE n.type = $3
+		  AND w.status = $2
+		  AND w.deleted_at IS NULL
 		ORDER BY 1
-	`, models.NodeTypeTriggerKafka, models.WorkflowStatusPublished)
+	`, models.NodeTypeTriggerKafka, models.WorkflowStatusPublished, models.NodeTypeTriggerEvent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query kafka topics: %w", err)
 	}
