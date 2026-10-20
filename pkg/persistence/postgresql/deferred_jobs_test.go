@@ -142,6 +142,7 @@ func startFlow(ctx context.Context, t *testing.T, p *postgresql.Persistence, ste
 		Description:     "runs its steps one after another",
 		Status:          models.WorkflowStatusPublished,
 		WorkflowGroupID: workflowID,
+		TenantID:        acmeTenant,
 		Nodes: []*models.WorkflowNode{
 			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/flow"}},
 		},

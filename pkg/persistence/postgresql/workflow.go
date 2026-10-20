@@ -25,7 +25,7 @@ func NewWorkflowRepository(db *sql.DB, logger *slog.Logger) *WorkflowRepository 
 }
 
 // GetAll returns all workflows from the database.
-func (r *WorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, error) {
+func (r *WorkflowRepository) GetAll(ctx context.Context, tenantID string) ([]*models.Workflow, error) {
 	query := `
 		SELECT
 			id
@@ -35,17 +35,18 @@ func (r *WorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, er
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at
 		  , updated_at
 		  , deleted_at
 		FROM workflows
-		WHERE deleted_at IS NULL
+		WHERE deleted_at IS NULL AND tenant_id = $1
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query workflows: %w", err)
 	}
@@ -91,6 +92,7 @@ func (r *WorkflowRepository) GetByID(ctx context.Context, id string) (*models.Wo
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at
@@ -168,8 +170,8 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *models.Workflow
 	// Save workflow base data
 	workflowQuery := `
 		INSERT INTO workflows (id, name, description,
-variables, status, metadata, owner, workflow_group_id, published_at, created_at, updated_at, deleted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+variables, status, metadata, owner, workflow_group_id, published_at, created_at, updated_at, deleted_at, tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
@@ -204,6 +206,7 @@ variables, status, metadata, owner, workflow_group_id, published_at, created_at,
 		workflow.CreatedAt,
 		workflow.UpdatedAt,
 		workflow.DeletedAt,
+		workflow.TenantID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save workflow base: %w", err)
@@ -271,6 +274,7 @@ func (r *WorkflowRepository) GetCurrentWorkflow(ctx context.Context, workflowGro
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at
@@ -311,6 +315,7 @@ func (r *WorkflowRepository) GetDraftWorkflow(ctx context.Context, workflowGroup
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at
@@ -351,6 +356,7 @@ func (r *WorkflowRepository) GetPublishedWorkflow(ctx context.Context, workflowG
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at
@@ -689,6 +695,7 @@ func (r *WorkflowRepository) scanWorkflowBase(scanner interface {
 		&workflow.Status,
 		&metadataJSON,
 		&workflow.Owner,
+		&workflow.TenantID,
 		&workflowGroupID,
 		&workflow.PublishedAt,
 		&workflow.CreatedAt,
@@ -733,6 +740,7 @@ func (r *WorkflowRepository) GetWorkflowVersions(ctx context.Context, workflowGr
 		  , status
 		  , metadata
 		  , owner
+		  , tenant_id
 		  , workflow_group_id
 		  , published_at
 		  , created_at

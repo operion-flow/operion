@@ -24,6 +24,7 @@ type Workflow struct {
 	Variables       map[string]any  `json:"variables"`
 	Metadata        map[string]any  `json:"metadata,omitempty"`
 	Owner           string          `json:"owner"`
+	TenantID        string          `json:"tenant_id"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 	PublishedAt     *time.Time      `json:"published_at,omitempty"`
