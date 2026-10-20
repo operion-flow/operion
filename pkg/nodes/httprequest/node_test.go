@@ -223,41 +223,17 @@ func TestHTTPRequestNode_Execute_SendsRenderedBody(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestNode_Execute_WithRetries(t *testing.T) {
-	// TODO: Retry logic test - simplify for now
-	// The retry logic needs to properly handle server errors vs client errors
-
-	// For now, just test that retries configuration is accepted
-	config := map[string]any{
-		"url":    "http://localhost:9999/nonexistent", // This will fail
-		"method": "GET",
-		"retries": map[string]any{
-			"attempts": 2,
-			"delay":    10, // 10ms delay
-		},
-	}
-
-	node, err := NewHTTPRequestNode("test-node", config)
+func TestHTTPRequestNode_Execute_ReturnsTheErrorPortWhenTheRequestFails(t *testing.T) {
+	node, err := NewHTTPRequestNode("test-node", map[string]any{"url": "http://127.0.0.1:1/unreachable", "method": "GET"})
 	if err != nil {
 		t.Fatalf("Failed to create node: %v", err)
 	}
 
-	// Create execution context
-	ctx := models.ExecutionContext{
-		ID:          "test-exec",
-		WorkflowID:  "test-workflow",
-		NodeResults: make(map[string]models.NodeResult),
-		Variables:   make(map[string]any),
-		Metadata:    make(map[string]any),
-	}
-
-	// Execute node - should return error result after retries
-	results, err := node.Execute(ctx, make(map[string]models.NodeResult))
+	results, err := node.Execute(models.ExecutionContext{NodeResults: map[string]models.NodeResult{}}, map[string]models.NodeResult{})
 	if err != nil {
 		t.Fatalf("Node execution failed: %v", err)
 	}
 
-	// Verify error result (since URL doesn't exist)
 	errorResult, ok := results[OutputPortError]
 	if !ok {
 		t.Fatal("Expected error output port for failed connection")
@@ -308,10 +284,6 @@ func TestHTTPRequestNode_Validate(t *testing.T) {
 				"url":     "https://example.com",
 				"method":  "POST",
 				"timeout": 30,
-				"retries": map[string]any{
-					"attempts": 3,
-					"delay":    1000,
-				},
 			},
 			wantErr: false,
 		},

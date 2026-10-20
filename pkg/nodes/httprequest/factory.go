@@ -78,30 +78,6 @@ func (f *HTTPRequestNodeFactory) Schema() map[string]any {
 				"minimum":     1,
 				"maximum":     300,
 			},
-			"retries": map[string]any{
-				"type":        "object",
-				"description": "Retry configuration for failed requests",
-				"properties": map[string]any{
-					"attempts": map[string]any{
-						"type":        "number",
-						"description": "Number of retry attempts (including initial request)",
-						"default":     1,
-						"minimum":     1,
-						"maximum":     10,
-					},
-					"delay": map[string]any{
-						"type":        "number",
-						"description": "Delay between retries in milliseconds",
-						"default":     1000,
-						"minimum":     0,
-						"maximum":     30000,
-					},
-				},
-				"examples": []map[string]any{
-					{"attempts": 3, "delay": 1000},
-					{"attempts": 5, "delay": 2000},
-				},
-			},
 		},
 		"required": []string{"url"},
 		"examples": []map[string]any{
@@ -118,7 +94,6 @@ func (f *HTTPRequestNodeFactory) Schema() map[string]any {
 				"method":  "POST",
 				"headers": map[string]string{"Content-Type": "application/json"},
 				"body":    `{"status": "completed", "result": {{.node_results.data_processing.output}}}`,
-				"retries": map[string]any{"attempts": 3, "delay": 1000},
 			},
 		},
 	}

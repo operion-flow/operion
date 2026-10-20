@@ -205,3 +205,24 @@ func TestRunSkipsJobsOfFinishedExecutions(t *testing.T) {
 	assert.Empty(t, jobs.enqueued)
 	assert.Contains(t, logs.String(), "job skipped")
 }
+
+func TestRunQueuesTheNextAttemptOfAFailedNode(t *testing.T) {
+	wf := greetWorkflow()
+	wf.Nodes[1] = &models.WorkflowNode{ID: "greet", Type: "transform", Config: map[string]any{"expression": "{not json}"}, Retry: &models.RetryPolicy{Attempts: 3, Initial: "1m", Max: "1h"}}
+
+	retry := job("exec-1", "wf")
+	retry.job.NodeID, retry.job.Port, retry.job.Attempt = "greet", "main", 1
+	jobs := &fakeJobs{pending: []pending{retry}}
+	before := time.Now()
+
+	err := runUntilEmpty(t, jobs, fakeWorkflows{workflows: map[string]*models.Workflow{"wf": wf}}, io.Discard)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, jobs.done, 1)
+	assert.Equal(t, models.ExecutionStatusRunning, jobs.done[0].Status)
+	require.Len(t, jobs.enqueued, 1)
+	assert.Equal(t, "greet", jobs.enqueued[0].NodeID)
+	assert.Equal(t, "main", jobs.enqueued[0].Port)
+	assert.Equal(t, 2, jobs.enqueued[0].Attempt)
+	assert.WithinDuration(t, before.Add(2*time.Minute), jobs.enqueued[0].RunAt, time.Minute)
+}

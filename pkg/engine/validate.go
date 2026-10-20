@@ -26,6 +26,10 @@ func (e *Engine) Validate(ctx context.Context, workflow *models.Workflow) error 
 			errs = append(errs, fmt.Errorf("node %q: %w", node.ID, err))
 		}
 
+		if err := validateRetry(node.Retry); err != nil {
+			errs = append(errs, fmt.Errorf("node %q: %w", node.ID, err))
+		}
+
 		for _, port := range instance.InputPorts() {
 			inputs[models.MakePortID(node.ID, port.Name)] = true
 		}

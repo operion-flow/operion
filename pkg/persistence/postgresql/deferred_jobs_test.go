@@ -132,27 +132,32 @@ func TestJobsProcessNextDropsQueuedJobsOfAFailedExecution(t *testing.T) {
 	assert.Empty(t, pendingJobs(ctx, t, databaseURL, execution.ID))
 }
 
-func startWaitingExecution(ctx context.Context, t *testing.T, p *postgresql.Persistence, message string) string {
+func startFlow(ctx context.Context, t *testing.T, p *postgresql.Persistence, steps ...*models.WorkflowNode) string {
 	t.Helper()
 
 	workflowID := uuid.NewString()
-	require.NoError(t, p.WorkflowRepository().Save(ctx, &models.Workflow{
+	wf := &models.Workflow{
 		ID:              workflowID,
-		Name:            "welcome later",
-		Description:     "waits before greeting",
+		Name:            "linear flow",
+		Description:     "runs its steps one after another",
 		Status:          models.WorkflowStatusPublished,
 		WorkflowGroupID: workflowID,
 		TenantID:        acmeTenant,
 		Nodes: []*models.WorkflowNode{
-			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/later"}},
-			{ID: holdNodeID, Name: holdNodeID, Type: "wait", Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{"duration": "1h"}},
-			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{messageKey: message}},
+			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/flow"}},
 		},
-		Connections: []*models.Connection{
-			{ID: "trigger-hold", SourcePort: "trigger:success", TargetPort: "hold:main"},
-			{ID: "hold-greet", SourcePort: "hold:success", TargetPort: "greet:main"},
-		},
-	}))
+	}
+
+	previous := triggerNodeID
+
+	for _, step := range steps {
+		step.Name, step.Category, step.Enabled = step.ID, models.CategoryTypeAction, true
+		wf.Nodes = append(wf.Nodes, step)
+		wf.Connections = append(wf.Connections, &models.Connection{ID: previous + "-" + step.ID, SourcePort: previous + ":success", TargetPort: step.ID + ":main"})
+		previous = step.ID
+	}
+
+	require.NoError(t, p.WorkflowRepository().Save(ctx, wf))
 
 	data := map[string]any{bodyKey: map[string]any{"employee": "Ana"}}
 	activation := engine.TriggerActivation(triggerNodeID, data)
@@ -169,16 +174,10 @@ func startWaitingExecution(ctx context.Context, t *testing.T, p *postgresql.Pers
 		_ = worker.New(p.Jobs(), p.WorkflowRepository(), engine.New(reg), slog.New(slog.DiscardHandler), 10*time.Millisecond).Run(workerCtx)
 	}()
 
-	require.Eventually(t, func() bool {
-		saved, err := p.ExecutionContextRepository().GetExecutionContext(ctx, execution.ID)
-
-		return err == nil && saved.NodeResults[holdNodeID].Status == string(models.NodeStatusWaiting)
-	}, 10*time.Second, 20*time.Millisecond)
-
 	return execution.ID
 }
 
-func waitForStatus(ctx context.Context, t *testing.T, p *postgresql.Persistence, executionID string, status models.ExecutionStatus) *models.ExecutionContext {
+func eventually(ctx context.Context, t *testing.T, p *postgresql.Persistence, executionID string, done func(*models.ExecutionContext) bool) *models.ExecutionContext {
 	t.Helper()
 
 	var saved *models.ExecutionContext
@@ -188,10 +187,36 @@ func waitForStatus(ctx context.Context, t *testing.T, p *postgresql.Persistence,
 
 		saved, err = p.ExecutionContextRepository().GetExecutionContext(ctx, executionID)
 
-		return err == nil && saved.Status == status
+		return err == nil && done(saved)
 	}, 10*time.Second, 20*time.Millisecond)
 
 	return saved
+}
+
+func waitForStatus(ctx context.Context, t *testing.T, p *postgresql.Persistence, executionID string, status models.ExecutionStatus) *models.ExecutionContext {
+	t.Helper()
+
+	return eventually(ctx, t, p, executionID, func(saved *models.ExecutionContext) bool { return saved.Status == status })
+}
+
+func waitForNodeStatus(ctx context.Context, t *testing.T, p *postgresql.Persistence, executionID, nodeID string, status models.NodeStatus) *models.ExecutionContext {
+	t.Helper()
+
+	return eventually(ctx, t, p, executionID, func(saved *models.ExecutionContext) bool {
+		return saved.NodeResults[nodeID].Status == string(status)
+	})
+}
+
+func startWaitingExecution(ctx context.Context, t *testing.T, p *postgresql.Persistence, message string) string {
+	t.Helper()
+
+	executionID := startFlow(ctx, t, p,
+		&models.WorkflowNode{ID: holdNodeID, Type: "wait", Config: map[string]any{"duration": "1h"}},
+		&models.WorkflowNode{ID: greetNodeID, Type: logNodeType, Config: map[string]any{messageKey: message}},
+	)
+	waitForNodeStatus(ctx, t, p, executionID, holdNodeID, models.NodeStatusWaiting)
+
+	return executionID
 }
 
 func TestWaitNodeHoldsTheExecutionUntilItsJobIsDue(t *testing.T) {

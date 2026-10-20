@@ -73,9 +73,9 @@ func insertJob(ctx context.Context, tx *sql.Tx, job models.Job) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO jobs (id, execution_id, node_id, port, data, run_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, job.ID, job.ExecutionID, job.NodeID, job.Port, data, job.RunAt)
+		INSERT INTO jobs (id, execution_id, node_id, port, data, run_at, attempt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, job.ID, job.ExecutionID, job.NodeID, job.Port, data, job.RunAt, job.Attempt)
 	if err != nil {
 		return fmt.Errorf("failed to insert job: %w", err)
 	}
@@ -132,13 +132,13 @@ func (j *Jobs) ProcessNext(
 	)
 
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, execution_id, node_id, port, data, run_at
+		SELECT id, execution_id, node_id, port, data, run_at, attempt
 		FROM jobs
 		WHERE run_at <= NOW()
 		ORDER BY run_at
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED
-	`).Scan(&job.ID, &job.ExecutionID, &job.NodeID, &job.Port, &data, &job.RunAt)
+	`).Scan(&job.ID, &job.ExecutionID, &job.NodeID, &job.Port, &data, &job.RunAt, &job.Attempt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

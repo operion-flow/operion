@@ -478,7 +478,7 @@ func (r *WorkflowRepository) loadWorkflowNodes(ctx context.Context, workflow *mo
 
 	// Load nodes with trigger fields
 	nodesQuery := `
-		SELECT id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type
+		SELECT id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type, retry
 		FROM workflow_nodes
 		WHERE workflow_id = $1
 		ORDER BY created_at
@@ -502,6 +502,7 @@ func (r *WorkflowRepository) loadWorkflowNodes(ctx context.Context, workflow *mo
 		var (
 			node       models.WorkflowNode
 			configJSON []byte
+			retryJSON  []byte
 		)
 
 		err := rows.Scan(
@@ -516,9 +517,16 @@ func (r *WorkflowRepository) loadWorkflowNodes(ctx context.Context, workflow *mo
 			&node.SourceID,
 			&node.ProviderID,
 			&node.EventType,
+			&retryJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to scan node: %w", err)
+		}
+
+		if retryJSON != nil {
+			if err := json.Unmarshal(retryJSON, &node.Retry); err != nil {
+				return fmt.Errorf("failed to unmarshal node retry policy: %w", err)
+			}
 		}
 
 		if configJSON != nil {
@@ -602,9 +610,14 @@ func (r *WorkflowRepository) saveWorkflowNodes(ctx context.Context, tx *sql.Tx, 
 			return fmt.Errorf("failed to marshal node configuration: %w", err)
 		}
 
+		retryJSON, err := json.Marshal(node.Retry)
+		if err != nil {
+			return fmt.Errorf("failed to marshal node retry policy: %w", err)
+		}
+
 		query := `
-			INSERT INTO workflow_nodes (id, workflow_id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			INSERT INTO workflow_nodes (id, workflow_id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type, retry)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		`
 
 		_, err = tx.ExecContext(ctx, query,
@@ -620,6 +633,7 @@ func (r *WorkflowRepository) saveWorkflowNodes(ctx context.Context, tx *sql.Tx, 
 			node.SourceID,
 			node.ProviderID,
 			node.EventType,
+			retryJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to save node: %w", err)
