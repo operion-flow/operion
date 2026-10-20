@@ -45,6 +45,10 @@ type Catalog interface {
 	List(ctx context.Context) ([]*models.EventDefinition, error)
 }
 
+type Resumer interface {
+	Resume(ctx context.Context, executionID, nodeID string, data map[string]any) error
+}
+
 type NodeTypes interface {
 	Save(ctx context.Context, nodeType *models.RemoteNodeType) error
 	Get(ctx context.Context, id string) (*models.RemoteNodeType, error)
@@ -55,16 +59,18 @@ type API struct {
 	publisher  Publisher
 	executions Executions
 	catalog    Catalog
+	resumer    Resumer
 	nodeTypes  NodeTypes
 	validate   *validator.Validate
 }
 
-func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog, nodeTypes NodeTypes) *API {
+func New(workflows Workflows, publisher Publisher, executions Executions, catalog Catalog, resumer Resumer, nodeTypes NodeTypes) *API {
 	return &API{
 		workflows:  workflows,
 		publisher:  publisher,
 		executions: executions,
 		catalog:    catalog,
+		resumer:    resumer,
 		nodeTypes:  nodeTypes,
 		validate:   validator.New(validator.WithRequiredStructEnabled()),
 	}
@@ -77,6 +83,7 @@ func (a *API) Register(app *fiber.App) {
 	app.Post("/workflows/:id/publish", a.publishWorkflow)
 	app.Get("/workflows/:id/executions", a.listExecutions)
 	app.Get("/executions/:id", a.getExecution)
+	app.Post("/executions/:id/nodes/:node_id/resume", a.resumeNode)
 	app.Put("/platform/event-definitions/:key", a.saveEventDefinition)
 	app.Get("/platform/event-definitions/:key", a.getEventDefinition)
 	app.Get("/catalog/events", a.listCatalog)
@@ -177,9 +184,18 @@ func (a *API) listExecutions(c fiber.Ctx) error {
 }
 
 func (a *API) getExecution(c fiber.Ctx) error {
-	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	execution, err := a.ownedExecution(c)
 	if err != nil {
 		return problem(c, statusFor(err), err)
+	}
+
+	return c.JSON(execution)
+}
+
+func (a *API) ownedExecution(c fiber.Ctx) (*models.ExecutionContext, error) {
+	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	if err != nil {
+		return nil, err
 	}
 
 	if _, err := a.ownedWorkflow(c, execution.WorkflowID); err != nil {
@@ -187,10 +203,31 @@ func (a *API) getExecution(c fiber.Ctx) error {
 			err = fmt.Errorf("%w: %s", persistence.ErrExecutionNotFound, execution.ID)
 		}
 
+		return nil, err
+	}
+
+	return execution, nil
+}
+
+func (a *API) resumeNode(c fiber.Ctx) error {
+	var data map[string]any
+
+	if len(c.Body()) > 0 {
+		if err := json.Unmarshal(c.Body(), &data); err != nil {
+			return problem(c, fiber.StatusBadRequest, err)
+		}
+	}
+
+	execution, err := a.ownedExecution(c)
+	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
 
-	return c.JSON(execution)
+	if err := a.resumer.Resume(c.Context(), execution.ID, c.Params("node_id"), data); err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"execution": execution.ID})
 }
 
 func tenantOf(c fiber.Ctx) (string, error) {
@@ -313,6 +350,8 @@ func statusFor(err error) int {
 		return fiber.StatusNotFound
 	case errors.Is(err, workflow.ErrInvalidWorkflow):
 		return fiber.StatusUnprocessableEntity
+	case errors.Is(err, persistence.ErrNodeNotWaiting):
+		return fiber.StatusConflict
 	case errors.Is(err, errTenantRequired):
 		return fiber.StatusBadRequest
 	default:

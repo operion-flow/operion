@@ -11,6 +11,7 @@ import (
 var (
 	ErrExecutionNotFound       = errors.New("execution context not found")
 	ErrEventDefinitionNotFound = errors.New("event definition not found")
+	ErrNodeNotWaiting          = errors.New("node is not waiting")
 	ErrRemoteNodeTypeNotFound  = errors.New("remote node type not found")
 )
 

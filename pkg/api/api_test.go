@@ -149,6 +149,27 @@ func (f *fakeCatalog) List(context.Context) ([]*models.EventDefinition, error) {
 	return definitions, f.err
 }
 
+type resumed struct {
+	executionID string
+	nodeID      string
+	data        map[string]any
+}
+
+type fakeResumer struct {
+	resumed []resumed
+	err     error
+}
+
+func (f *fakeResumer) Resume(_ context.Context, executionID, nodeID string, data map[string]any) error {
+	if f.err != nil {
+		return f.err
+	}
+
+	f.resumed = append(f.resumed, resumed{executionID: executionID, nodeID: nodeID, data: data})
+
+	return nil
+}
+
 type fakeNodeTypes struct {
 	nodeTypes map[string]*models.RemoteNodeType
 	err       error
@@ -179,6 +200,7 @@ type server struct {
 	publisher  fakePublisher
 	executions fakeExecutions
 	catalog    *fakeCatalog
+	resumer    *fakeResumer
 	nodeTypes  *fakeNodeTypes
 }
 
@@ -186,7 +208,7 @@ func (s server) do(t *testing.T, method, target, body string) (int, map[string]a
 	t.Helper()
 
 	app := fiber.New()
-	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.nodeTypes).Register(app)
+	api.New(s.workflows, s.publisher, s.executions, s.catalog, s.resumer, s.nodeTypes).Register(app)
 
 	req := httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
 	if s.tenant != "" {
@@ -219,6 +241,7 @@ func newServer() server {
 			"exec": {ID: "exec", WorkflowID: "wf", Status: models.ExecutionStatusCompleted},
 		}},
 		catalog:   &fakeCatalog{definitions: map[string]*models.EventDefinition{}},
+		resumer:   &fakeResumer{},
 		nodeTypes: &fakeNodeTypes{nodeTypes: map[string]*models.RemoteNodeType{}},
 	}
 }
@@ -303,6 +326,52 @@ func TestGetExecution(t *testing.T) {
 
 	status, _ = s.do(t, http.MethodGet, "/executions/missing", "")
 	assert.Equal(t, http.StatusNotFound, status)
+}
+
+const resumeHold = "/executions/exec/nodes/hold/resume"
+
+func TestResumeNode(t *testing.T) {
+	s := newServer()
+
+	status, body := s.do(t, http.MethodPost, resumeHold, `{"decision": "approved"}`)
+	require.Equal(t, http.StatusAccepted, status, body)
+	assert.Equal(t, "exec", body["execution"])
+
+	status, _ = s.do(t, http.MethodPost, resumeHold, "")
+	require.Equal(t, http.StatusAccepted, status)
+
+	assert.Equal(t, []resumed{
+		{executionID: "exec", nodeID: "hold", data: map[string]any{"decision": "approved"}},
+		{executionID: "exec", nodeID: "hold"},
+	}, s.resumer.resumed)
+}
+
+func TestResumeNodeErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		body   string
+		err    error
+		status int
+	}{
+		{name: "body is not an object", target: resumeHold, body: `[1]`, status: http.StatusBadRequest},
+		{name: "execution not found", target: "/executions/missing/nodes/hold/resume", status: http.StatusNotFound},
+		{name: "node not waiting", target: resumeHold, err: fmt.Errorf("%w: hold", persistence.ErrNodeNotWaiting), status: http.StatusConflict},
+		{name: "store error", target: resumeHold, err: errStore, status: http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer()
+			s.resumer.err = tt.err
+
+			status, body := s.do(t, http.MethodPost, tt.target, tt.body)
+
+			assert.Equal(t, tt.status, status)
+			assert.NotEmpty(t, body["detail"])
+			assert.Empty(t, s.resumer.resumed)
+		})
+	}
 }
 
 func TestStoreErrorsReturnInternalError(t *testing.T) {
@@ -441,6 +510,62 @@ func TestListExecutionsRejectsBadRequests(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, status)
 }
 
+func TestTenantRoutesRequireTheTenantHeader(t *testing.T) {
+	s := newServer()
+	s.tenant = ""
+
+	for _, request := range [][2]string{
+		{http.MethodGet, "/workflows"},
+		{http.MethodPost, "/workflows"},
+		{http.MethodGet, "/workflows/wf"},
+		{http.MethodPost, "/workflows/wf/publish"},
+		{http.MethodGet, "/workflows/wf/executions"},
+		{http.MethodGet, "/executions/exec"},
+		{http.MethodPost, resumeHold},
+	} {
+		status, body := s.do(t, request[0], request[1], `{"name": "Employee Criado", "description": "greets"}`)
+		assert.Equal(t, http.StatusBadRequest, status, request[1])
+		assert.Equal(t, "X-Tenant-Id header is required", body["detail"], request[1])
+	}
+}
+
+func TestOtherTenantsSeeNothing(t *testing.T) {
+	s := newServer()
+	s.tenant = "globex"
+
+	status, body := s.do(t, http.MethodGet, "/workflows", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, body["items"])
+
+	for _, request := range [][2]string{
+		{http.MethodGet, "/workflows/wf"},
+		{http.MethodPost, "/workflows/wf/publish"},
+		{http.MethodGet, "/workflows/wf/executions"},
+		{http.MethodGet, "/executions/exec"},
+		{http.MethodPost, resumeHold},
+	} {
+		status, _ := s.do(t, request[0], request[1], "")
+		assert.Equal(t, http.StatusNotFound, status, request[1])
+	}
+
+	assert.Empty(t, s.resumer.resumed)
+
+	status, body = s.do(t, http.MethodGet, "/executions/exec", "")
+	require.Equal(t, http.StatusNotFound, status)
+	assert.Contains(t, body["detail"], "execution context not found")
+}
+
+func TestCreateWorkflowBelongsToTheCallerTenant(t *testing.T) {
+	s := newServer()
+	s.tenant = "globex"
+
+	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "tenant_id": "acme"}`)
+
+	require.Equal(t, http.StatusCreated, status)
+	require.Len(t, s.workflows.created, 1)
+	assert.Equal(t, "globex", s.workflows.created[0].TenantID)
+}
+
 func TestSaveAndGetNodeType(t *testing.T) {
 	s := newServer()
 
@@ -488,56 +613,4 @@ func TestSaveNodeTypeStoreError(t *testing.T) {
 	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits"}`)
 
 	assert.Equal(t, http.StatusInternalServerError, status)
-}
-
-func TestTenantRoutesRequireTheTenantHeader(t *testing.T) {
-	s := newServer()
-	s.tenant = ""
-
-	for _, request := range [][2]string{
-		{http.MethodGet, "/workflows"},
-		{http.MethodPost, "/workflows"},
-		{http.MethodGet, "/workflows/wf"},
-		{http.MethodPost, "/workflows/wf/publish"},
-		{http.MethodGet, "/workflows/wf/executions"},
-		{http.MethodGet, "/executions/exec"},
-	} {
-		status, body := s.do(t, request[0], request[1], `{"name": "Employee Criado", "description": "greets"}`)
-		assert.Equal(t, http.StatusBadRequest, status, request[1])
-		assert.Equal(t, "X-Tenant-Id header is required", body["detail"], request[1])
-	}
-}
-
-func TestOtherTenantsSeeNothing(t *testing.T) {
-	s := newServer()
-	s.tenant = "globex"
-
-	status, body := s.do(t, http.MethodGet, "/workflows", "")
-	require.Equal(t, http.StatusOK, status)
-	assert.Empty(t, body["items"])
-
-	for _, request := range [][2]string{
-		{http.MethodGet, "/workflows/wf"},
-		{http.MethodPost, "/workflows/wf/publish"},
-		{http.MethodGet, "/workflows/wf/executions"},
-		{http.MethodGet, "/executions/exec"},
-	} {
-		status, _ := s.do(t, request[0], request[1], "")
-		assert.Equal(t, http.StatusNotFound, status, request[1])
-	}
-
-	status, body = s.do(t, http.MethodGet, "/executions/exec", "")
-	require.Equal(t, http.StatusNotFound, status)
-	assert.Contains(t, body["detail"], "execution context not found")
-}
-
-func TestCreateWorkflowBelongsToTheCallerTenant(t *testing.T) {
-	s := newServer()
-	s.tenant = "globex"
-
-	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "tenant_id": "acme"}`)
-
-	require.Equal(t, http.StatusCreated, status)
-	require.Len(t, s.workflows.created, 1)
-	assert.Equal(t, "globex", s.workflows.created[0].TenantID)
 }
