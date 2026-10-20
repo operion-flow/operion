@@ -15,7 +15,6 @@ import (
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/ingest"
 	"github.com/dukex/operion/pkg/models"
-	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/worker"
@@ -94,7 +93,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes(notify.SMTP{})
+	reg.RegisterDefaultNodes()
 
 	e := engine.New(reg)
 

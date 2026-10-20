@@ -5,15 +5,14 @@ import (
 	"github.com/dukex/operion/pkg/nodes/conditional"
 	"github.com/dukex/operion/pkg/nodes/httprequest"
 	"github.com/dukex/operion/pkg/nodes/log"
-	"github.com/dukex/operion/pkg/nodes/notify"
 	switchnode "github.com/dukex/operion/pkg/nodes/switch"
 	"github.com/dukex/operion/pkg/nodes/transform"
 	"github.com/dukex/operion/pkg/nodes/trigger"
 	"github.com/dukex/operion/pkg/nodes/wait"
 )
 
-// RegisterDefaultNodes registers all built-in node factories with the registry, sending email through mail.
-func (r *Registry) RegisterDefaultNodes(mail notify.SMTP) {
+// RegisterDefaultNodes registers all built-in node factories with the registry.
+func (r *Registry) RegisterDefaultNodes() {
 	// Register HTTP Request node
 	r.RegisterNode(httprequest.NewHTTPRequestNodeFactory())
 
@@ -30,8 +29,6 @@ func (r *Registry) RegisterDefaultNodes(mail notify.SMTP) {
 	r.RegisterNode(switchnode.NewSwitchNodeFactory())
 	r.RegisterNode(wait.NewWaitFactory())
 	r.RegisterNode(wait.NewWaitUntilFactory())
-
-	r.RegisterNode(notify.NewNotifyNodeFactory(mail))
 
 	// Register Trigger nodes
 	r.RegisterNode(trigger.NewWebhookTriggerNodeFactory())

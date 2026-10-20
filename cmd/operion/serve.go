@@ -13,7 +13,6 @@ import (
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/ingest"
 	"github.com/dukex/operion/pkg/log"
-	"github.com/dukex/operion/pkg/nodes/notify"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/scheduler"
@@ -41,11 +40,6 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "schema-registry-url", Usage: "Confluent Schema Registry for avro and protobuf events; they are skipped when empty", Sources: cli.EnvVars("SCHEMA_REGISTRY_URL")},
 			&cli.StringFlag{Name: "schema-registry-username", Usage: "Schema Registry basic auth username", Sources: cli.EnvVars("SCHEMA_REGISTRY_USERNAME")},
 			&cli.StringFlag{Name: "schema-registry-password", Usage: "Schema Registry basic auth password", Sources: cli.EnvVars("SCHEMA_REGISTRY_PASSWORD")},
-			&cli.StringFlag{Name: "smtp-host", Usage: "SMTP server for notify email; email notifications fail when empty", Sources: cli.EnvVars("SMTP_HOST")},
-			&cli.IntFlag{Name: "smtp-port", Usage: "SMTP port", Value: 587, Sources: cli.EnvVars("SMTP_PORT")},
-			&cli.StringFlag{Name: "smtp-username", Usage: "SMTP username; no authentication when empty", Sources: cli.EnvVars("SMTP_USERNAME")},
-			&cli.StringFlag{Name: "smtp-password", Usage: "SMTP password", Sources: cli.EnvVars("SMTP_PASSWORD")},
-			&cli.StringFlag{Name: "smtp-from", Usage: "Sender address of notify email", Sources: cli.EnvVars("SMTP_FROM")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return serve(ctx, serveOptions{
@@ -61,13 +55,6 @@ func newServeCommand() *cli.Command {
 					Username: command.String("schema-registry-username"),
 					Password: command.String("schema-registry-password"),
 				},
-				smtp: notify.SMTP{
-					Host:     command.String("smtp-host"),
-					Port:     command.Int("smtp-port"),
-					Username: command.String("smtp-username"),
-					Password: command.String("smtp-password"),
-					From:     command.String("smtp-from"),
-				},
 			})
 		},
 	}
@@ -82,7 +69,6 @@ type serveOptions struct {
 	kafkaBrokers   []string
 	kafkaGroup     string
 	schemaRegistry ingest.SchemaRegistry
-	smtp           notify.SMTP
 }
 
 func serve(ctx context.Context, options serveOptions) error {
@@ -110,7 +96,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	defer func() { _ = store.Close(context.WithoutCancel(ctx)) }()
 
 	reg := registry.NewRegistry()
-	reg.RegisterDefaultNodes(options.smtp)
+	reg.RegisterDefaultNodes()
 	reg.UseRemoteTypes(store.RemoteNodeTypes())
 
 	e := engine.New(reg)

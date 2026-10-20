@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/dukex/operion/pkg/nodes/notify"
 )
 
 func TestRegisterDefaultNodes(t *testing.T) {
@@ -13,7 +11,7 @@ func TestRegisterDefaultNodes(t *testing.T) {
 	registry := NewRegistry()
 
 	// Register default nodes
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Verify all expected node types are registered
 	expectedNodes := []string{
@@ -24,7 +22,6 @@ func TestRegisterDefaultNodes(t *testing.T) {
 		"switch",
 		"wait",
 		"wait_until",
-		"notify",
 		"trigger:webhook",
 		"trigger:scheduler",
 		"trigger:kafka",
@@ -45,7 +42,7 @@ func TestRegisterDefaultNodes(t *testing.T) {
 func TestCreateNode_HTTPRequest(t *testing.T) {
 	// Create registry and register nodes
 	registry := NewRegistry()
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Test creating an HTTP request node
 	config := map[string]any{
@@ -70,7 +67,7 @@ func TestCreateNode_HTTPRequest(t *testing.T) {
 func TestCreateNode_Transform(t *testing.T) {
 	// Create registry and register nodes
 	registry := NewRegistry()
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Test creating a transform node
 	config := map[string]any{
@@ -94,7 +91,7 @@ func TestCreateNode_Transform(t *testing.T) {
 func TestCreateNode_Conditional(t *testing.T) {
 	// Create registry and register nodes
 	registry := NewRegistry()
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Test creating a conditional node
 	config := map[string]any{
@@ -118,7 +115,7 @@ func TestCreateNode_Conditional(t *testing.T) {
 func TestCreateNode_Log(t *testing.T) {
 	// Create registry and register nodes
 	registry := NewRegistry()
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Test creating a log node
 	config := map[string]any{
@@ -143,7 +140,7 @@ func TestCreateNode_Log(t *testing.T) {
 func TestCreateNode_UnknownType(t *testing.T) {
 	// Create registry and register nodes
 	registry := NewRegistry()
-	registry.RegisterDefaultNodes(notify.SMTP{})
+	registry.RegisterDefaultNodes()
 
 	// Test creating a node with unknown type
 	config := map[string]any{}
