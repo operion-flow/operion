@@ -7,6 +7,7 @@ type RemoteNodeType struct {
 	Name           string         `json:"name"             validate:"required"`
 	Description    string         `json:"description"`
 	URL            string         `json:"url"              validate:"required,http_url"`
+	Secret         string         `json:"secret,omitempty" validate:"omitempty,min=16"`
 	Schema         map[string]any `json:"schema,omitempty"`
 	Outputs        []string       `json:"outputs"`
 	TimeoutSeconds int            `json:"timeout_seconds"  validate:"gte=0,lte=300"`
