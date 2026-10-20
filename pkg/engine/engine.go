@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,7 +15,7 @@ import (
 const (
 	triggerInputPort = "external"
 	errorOutputPort  = "error"
-	ResumePort       = "resume"
+	ResumePort       = protocol.ResumePort
 )
 
 type NodeCreator interface {
@@ -103,17 +104,15 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 			return nil, nil, fmt.Errorf("node %q: %w", node.ID, err)
 		}
 
-		execution.NodeResults[node.ID] = models.NodeResult{
-			NodeID:    node.ID,
-			Data:      map[string]any{"resume_at": runAt.UTC().Format(time.RFC3339)},
-			Status:    string(models.NodeStatusWaiting),
-			Timestamp: time.Now().UTC(),
-		}
-
-		return nil, []Deferred{{Activation: Activation{NodeID: node.ID, Port: ResumePort, Data: current.Data}, RunAt: runAt}}, nil
+		return nil, hold(execution, node.ID, map[string]any{"resume_at": runAt.UTC().Format(time.RFC3339)}, runAt, current.Data), nil
 	}
 
 	outputs, err := instance.Execute(*execution, inputs)
+
+	var suspended *protocol.SuspendError
+	if errors.As(err, &suspended) {
+		return nil, hold(execution, node.ID, suspended.Data, suspended.Until, nil), nil
+	}
 
 	if retry, ok := retryLater(execution, node, current, failure(outputs, err)); ok {
 		return nil, []Deferred{retry}, nil
@@ -142,6 +141,17 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 	}
 
 	return next, nil, nil
+}
+
+func hold(execution *models.ExecutionContext, nodeID string, result map[string]any, until time.Time, data map[string]any) []Deferred {
+	execution.NodeResults[nodeID] = models.NodeResult{
+		NodeID:    nodeID,
+		Data:      result,
+		Status:    string(models.NodeStatusWaiting),
+		Timestamp: time.Now().UTC(),
+	}
+
+	return []Deferred{{Activation: Activation{NodeID: nodeID, Port: ResumePort, Data: data}, RunAt: until}}
 }
 
 func finish(execution *models.ExecutionContext, status models.ExecutionStatus, message string) {

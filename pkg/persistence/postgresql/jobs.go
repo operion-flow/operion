@@ -84,6 +84,10 @@ func insertJob(ctx context.Context, tx *sql.Tx, job models.Job) error {
 }
 
 func (j *Jobs) Resume(ctx context.Context, executionID, nodeID string, data map[string]any) error {
+	return j.ResumeIf(ctx, executionID, nodeID, data, func(models.NodeResult) bool { return true })
+}
+
+func (j *Jobs) ResumeIf(ctx context.Context, executionID, nodeID string, data map[string]any, allowed func(models.NodeResult) bool) error {
 	var encoded any
 
 	if data != nil {
@@ -95,9 +99,36 @@ func (j *Jobs) Resume(ctx context.Context, executionID, nodeID string, data map[
 		encoded = string(raw)
 	}
 
-	result, err := j.db.ExecContext(ctx, `
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	var raw []byte
+
+	err = tx.QueryRowContext(ctx, `SELECT node_results FROM execution_contexts WHERE id = $1 FOR UPDATE`, executionID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s", persistence.ErrExecutionNotFound, executionID)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to lock execution %s: %w", executionID, err)
+	}
+
+	var results map[string]models.NodeResult
+	if err := json.Unmarshal(raw, &results); err != nil {
+		return fmt.Errorf("failed to read node results of execution %s: %w", executionID, err)
+	}
+
+	if !allowed(results[nodeID]) {
+		return fmt.Errorf("%w: %s in execution %s", persistence.ErrResumeRefused, nodeID, executionID)
+	}
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE jobs SET run_at = NOW(), data = COALESCE($4::jsonb, data)
-		WHERE execution_id = $1 AND node_id = $2 AND port = $3
+		WHERE execution_id = $1 AND node_id = $2 AND port = $3 AND run_at > NOW()
 	`, executionID, nodeID, engine.ResumePort, encoded)
 	if err != nil {
 		return fmt.Errorf("failed to resume node %s of execution %s: %w", nodeID, executionID, err)
@@ -112,7 +143,7 @@ func (j *Jobs) Resume(ctx context.Context, executionID, nodeID string, data map[
 		return fmt.Errorf("%w: %s in execution %s", persistence.ErrNodeNotWaiting, nodeID, executionID)
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (j *Jobs) ProcessNext(

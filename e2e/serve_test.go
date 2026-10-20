@@ -159,7 +159,7 @@ func startServe(t *testing.T) string {
 
 	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, "serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn") //nolint:gosec // runs the binary this test just built
 
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL)
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL, "OPERION_PUBLIC_URL=http://127.0.0.1:"+port)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -356,4 +356,113 @@ func TestPublishRejectsAnUndeclaredPort(t *testing.T) {
 	status, stored := call(t, http.MethodGet, base+"/workflows/"+id, nil)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "draft", stored[statusKey])
+}
+
+func finished(t *testing.T, base, executionID string) map[string]any {
+	t.Helper()
+
+	var execution map[string]any
+
+	require.Eventually(t, func() bool {
+		code, decoded, err := fetch(t.Context(), http.MethodGet, base+"/executions/"+executionID, nil)
+		if err != nil || code != http.StatusOK {
+			return false
+		}
+
+		execution = decoded
+
+		return execution[statusKey] != "running"
+	}, 30*time.Second, 100*time.Millisecond)
+
+	return execution
+}
+
+func startAsyncBenefit(t *testing.T, base string, plugin http.HandlerFunc) string {
+	t.Helper()
+
+	server := httptest.NewServer(plugin)
+	t.Cleanup(server.Close)
+
+	status, saved := call(t, http.MethodPut, base+"/platform/node-types/create_benefit", map[string]any{
+		"name": "Criar benefício", "url": server.URL, "outputs": []string{"approved", "rejected"},
+	})
+	require.Equal(t, http.StatusOK, status, saved)
+
+	definition := workflow(
+		[]map[string]any{
+			webhookTrigger(),
+			node("benefit", "create_benefit", "action", map[string]any{"employee": "{{.node_results.trigger.body.employee}}"}),
+			node("done", "log", "action", map[string]any{"message": "granted {{.node_results.benefit.benefit_id}}"}),
+		},
+		connection("trigger:success", "benefit:main"),
+		connection("benefit:approved", "done:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{"employee": "Ana"})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	return accepted["executions"].([]any)[0].(string)
+}
+
+func TestARemoteNodeAnswersLaterThroughItsCallback(t *testing.T) {
+	base := startServe(t)
+	answered := make(chan int, 2)
+
+	executionID := startAsyncBenefit(t, base, func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			CallbackURL string         `json:"callback_url"`
+			Config      map[string]any `json:"config"`
+		}
+
+		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&request)) {
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+
+		ctx := context.WithoutCancel(r.Context())
+
+		go func() {
+			answer := map[string]any{"port": "approved", "data": map[string]any{"benefit_id": "b-1", "employee": request.Config["employee"]}}
+
+			status, _, err := fetch(ctx, http.MethodPost, request.CallbackURL, answer)
+			assert.NoError(t, err)
+
+			answered <- status
+
+			status, _, err = fetch(ctx, http.MethodPost, request.CallbackURL, answer)
+			assert.NoError(t, err)
+
+			answered <- status
+		}()
+	})
+
+	execution := finished(t, base, executionID)
+	require.Equal(t, "completed", execution[statusKey], execution["error_message"])
+
+	results := execution["node_results"].(map[string]any)
+	assert.Equal(t, map[string]any{"benefit_id": "b-1", "employee": "Ana"}, results["benefit"].(map[string]any)["data"])
+	assert.Equal(t, "granted b-1", results["done"].(map[string]any)["data"].(map[string]any)["message"])
+
+	assert.Equal(t, http.StatusAccepted, <-answered)
+	assert.Contains(t, []int{http.StatusNotFound, http.StatusConflict}, <-answered)
+}
+
+func TestARemoteNodeThatNeverAnswersFailsAtItsDeadline(t *testing.T) {
+	base := startServe(t)
+
+	executionID := startAsyncBenefit(t, base, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"timeout_seconds": 1}`))
+	})
+
+	execution := finished(t, base, executionID)
+	assert.Equal(t, "failed", execution[statusKey])
+	assert.Contains(t, execution["error_message"], "did not call back before its deadline")
 }

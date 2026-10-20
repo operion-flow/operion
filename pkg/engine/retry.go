@@ -24,7 +24,7 @@ func failure(outputs map[string]models.NodeResult, err error) string {
 
 func retryLater(execution *models.ExecutionContext, node *models.WorkflowNode, current Activation, failure string) (Deferred, bool) {
 	attempt := current.Attempt + 1
-	if failure == "" || node.Retry == nil || attempt >= node.Retry.Attempts {
+	if failure == "" || node.Retry == nil || attempt >= node.Retry.Attempts || current.Port == ResumePort {
 		return Deferred{}, false
 	}
 

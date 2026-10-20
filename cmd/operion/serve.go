@@ -32,6 +32,7 @@ func newServeCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
+			&cli.StringFlag{Name: "public-url", Usage: "Base URL remote nodes call back to, such as http://operion:9091; without it a remote node that answers 202 fails", Sources: cli.EnvVars("OPERION_PUBLIC_URL")},
 			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the background loops wait when nothing is due", Value: time.Second},
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
 			&cli.StringSliceFlag{Name: "kafka-brokers", Usage: "Kafka brokers for trigger:event and trigger:kafka workflows; Kafka is off when empty", Sources: cli.EnvVars("KAFKA_BROKERS")},
@@ -44,6 +45,7 @@ func newServeCommand() *cli.Command {
 			return serve(ctx, serveOptions{
 				databaseURL:  command.String("database-url"),
 				port:         command.Int("port"),
+				publicURL:    command.String("public-url"),
 				pollInterval: command.Duration("poll-interval"),
 				logLevel:     command.String("log-level"),
 				kafkaBrokers: command.StringSlice("kafka-brokers"),
@@ -61,6 +63,7 @@ func newServeCommand() *cli.Command {
 type serveOptions struct {
 	databaseURL    string
 	port           int
+	publicURL      string
 	pollInterval   time.Duration
 	logLevel       string
 	kafkaBrokers   []string
@@ -95,6 +98,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 	reg.UseRemoteTypes(store.RemoteNodeTypes())
+	reg.UseCallbackURL(options.publicURL)
 
 	e := engine.New(reg)
 	jobs := store.Jobs()
@@ -122,6 +126,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
 	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
 	ingest.NewWebhook(store, jobs, logger).Register(app)
+	ingest.NewCallbacks(jobs).Register(app)
 	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e, store.EventDefinitions()), store.ExecutionContextRepository(), store.EventDefinitions(), jobs, store.RemoteNodeTypes()).Register(app)
 
 	var running sync.WaitGroup

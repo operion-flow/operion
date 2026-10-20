@@ -322,3 +322,23 @@ func TestRunFailsWhenTheWaitCannotBeComputed(t *testing.T) {
 	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
 	assert.Equal(t, `node "hold": no start date`, execution.ErrorMessage)
 }
+
+func TestRunHoldsANodeThatSuspends(t *testing.T) {
+	until := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	stubs := map[string]protocol.Node{holdType: stubNode{err: &protocol.SuspendError{Until: until, Data: map[string]any{"answer_by": "tomorrow"}}}}
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("hold", holdType, nil), logNode("after")},
+		connect("trigger:success", "hold:main"),
+		connect("hold:success", "after:main"),
+	)
+	execution := &models.ExecutionContext{ID: "exec", WorkflowID: wf.ID, Status: models.ExecutionStatusRunning}
+
+	deferred, err := newEngine(stubs).Run(t.Context(), wf, execution, engine.TriggerActivation("trigger", nil))
+
+	require.NoError(t, err)
+	require.Equal(t, []engine.Deferred{{Activation: engine.Activation{NodeID: "hold", Port: engine.ResumePort}, RunAt: until}}, deferred)
+	assert.Equal(t, models.ExecutionStatusRunning, execution.Status)
+	assert.Equal(t, string(models.NodeStatusWaiting), execution.NodeResults["hold"].Status)
+	assert.Equal(t, map[string]any{"answer_by": "tomorrow"}, execution.NodeResults["hold"].Data)
+	assert.NotContains(t, execution.NodeResults, "after")
+}
