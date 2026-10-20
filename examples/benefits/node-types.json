@@ -1,0 +1,11 @@
+{
+  "grant_benefit": {
+    "name": "Conceder benefício",
+    "description": "Approves up to 500 at once and answers larger amounts after a review",
+    "url": "http://benefits:8080",
+    "secret": "change-me-to-a-long-random-secret",
+    "outputs": ["approved"],
+    "timeout_seconds": 10,
+    "schema": {"required": ["amount"]}
+  }
+}

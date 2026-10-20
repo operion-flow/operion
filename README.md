@@ -159,7 +159,7 @@ Node configs are Go templates. A node reads earlier results with `{{.node_result
 
 ### Remote nodes
 
-A node type can live in any service that speaks HTTP. The platform registers it once:
+A node type can live in any service that speaks HTTP, in any language, deployed next to Operion as its own container. [`examples/benefits`](examples/benefits) is a complete one with a Dockerfile and a compose file. The platform registers it once:
 
 ```bash
 curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' -d '{
