@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 )
 
 type Jobs struct {
@@ -76,6 +78,38 @@ func insertJob(ctx context.Context, tx *sql.Tx, job models.Job) error {
 	`, job.ID, job.ExecutionID, job.NodeID, job.Port, data, job.RunAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert job: %w", err)
+	}
+
+	return nil
+}
+
+func (j *Jobs) Resume(ctx context.Context, executionID, nodeID string, data map[string]any) error {
+	var encoded any
+
+	if data != nil {
+		raw, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("failed to marshal resume data: %w", err)
+		}
+
+		encoded = string(raw)
+	}
+
+	result, err := j.db.ExecContext(ctx, `
+		UPDATE jobs SET run_at = NOW(), data = COALESCE($4::jsonb, data)
+		WHERE execution_id = $1 AND node_id = $2 AND port = $3
+	`, executionID, nodeID, engine.ResumePort, encoded)
+	if err != nil {
+		return fmt.Errorf("failed to resume node %s of execution %s: %w", nodeID, executionID, err)
+	}
+
+	resumed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to resume node %s of execution %s: %w", nodeID, executionID, err)
+	}
+
+	if resumed == 0 {
+		return fmt.Errorf("%w: %s in execution %s", persistence.ErrNodeNotWaiting, nodeID, executionID)
 	}
 
 	return nil
