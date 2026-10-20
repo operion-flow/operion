@@ -34,6 +34,7 @@ const (
 	webhookPath = "/employees"
 	tenant      = "acme"
 	apiToken    = "e2e-token"
+	approved    = "approved"
 )
 
 var (
@@ -387,7 +388,7 @@ func startAsyncBenefit(t *testing.T, base string, plugin http.HandlerFunc) strin
 	t.Cleanup(server.Close)
 
 	status, saved := call(t, http.MethodPut, base+"/platform/node-types/create_benefit", map[string]any{
-		"name": "Criar benefício", "url": server.URL, "outputs": []string{"approved", "rejected"},
+		"name": "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
 	})
 	require.Equal(t, http.StatusOK, status, saved)
 
@@ -432,7 +433,7 @@ func TestARemoteNodeAnswersLaterThroughItsCallback(t *testing.T) {
 		ctx := context.WithoutCancel(r.Context())
 
 		go func() {
-			answer := map[string]any{"port": "approved", "data": map[string]any{"benefit_id": "b-1", "employee": request.Config["employee"]}}
+			answer := map[string]any{"port": approved, "data": map[string]any{"benefit_id": "b-1", "employee": request.Config["employee"]}}
 
 			status, _, err := fetch(ctx, http.MethodPost, request.CallbackURL, answer)
 			assert.NoError(t, err)
@@ -479,7 +480,7 @@ func TestServeRegistersNodeTypesFromAFile(t *testing.T) {
 	status, nodeType := call(t, http.MethodGet, base+"/platform/node-types/create_benefit", nil)
 	require.Equal(t, http.StatusOK, status, nodeType)
 	assert.Equal(t, "Criar benefício", nodeType["name"])
-	assert.Equal(t, []any{"approved", "error"}, nodeType["outputs"])
+	assert.Equal(t, []any{approved, "error"}, nodeType["outputs"])
 }
 
 func TestOnlyTheAPINeedsTheToken(t *testing.T) {

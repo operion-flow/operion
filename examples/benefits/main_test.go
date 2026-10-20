@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,7 +18,6 @@ import (
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
-	"github.com/dukex/operion/pkg/persistence"
 	"github.com/dukex/operion/pkg/protocol"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/stretchr/testify/assert"
@@ -153,17 +151,6 @@ func TestVerifiedRefusesOldTimestampsOtherBodiesAndOtherSecrets(t *testing.T) {
 	assert.False(t, verified(secret, http.Header{}, body, now))
 }
 
-type nodeTypes map[string]models.RemoteNodeType
-
-func (n nodeTypes) Get(_ context.Context, id string) (*models.RemoteNodeType, error) {
-	nodeType, ok := n[id]
-	if !ok {
-		return nil, persistence.ErrRemoteNodeTypeNotFound
-	}
-
-	return &nodeType, nil
-}
-
 func readJSON(t *testing.T, path string, target any) {
 	t.Helper()
 
@@ -173,12 +160,11 @@ func readJSON(t *testing.T, path string, target any) {
 }
 
 func TestTheExampleWorkflowGrantsTheBenefit(t *testing.T) {
-	var (
-		types nodeTypes
-		wf    models.Workflow
-	)
+	types, err := remote.ReadTypes("node-types.json")
+	require.NoError(t, err)
 
-	readJSON(t, "node-types.json", &types)
+	var wf models.Workflow
+
 	readJSON(t, "workflow.json", &wf)
 
 	grant := types["grant_benefit"]
