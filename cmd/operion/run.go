@@ -66,7 +66,15 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string,
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	if err := e.Run(ctx, &workflow, execution, engine.TriggerActivation(triggerID, event)); err != nil {
+	deferred, err := e.Run(ctx, &workflow, execution, engine.TriggerActivation(triggerID, event))
+	for err == nil && len(deferred) > 0 && execution.Status != models.ExecutionStatusFailed {
+		var later []engine.Deferred
+
+		later, err = e.Run(ctx, &workflow, execution, deferred[0].Activation)
+		deferred = append(deferred[1:], later...)
+	}
+
+	if err != nil {
 		return err
 	}
 

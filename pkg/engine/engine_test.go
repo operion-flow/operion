@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
@@ -29,9 +30,20 @@ func (s stubNode) Execute(models.ExecutionContext, map[string]models.NodeResult)
 	return s.outputs, s.err
 }
 
+type waiterNode struct {
+	stubNode
+
+	at  time.Time
+	err error
+}
+
+func (w waiterNode) WaitUntil(models.ExecutionContext, map[string]models.NodeResult) (time.Time, error) {
+	return w.at, w.err
+}
+
 type creator struct {
 	registry *registry.Registry
-	stubs    map[string]stubNode
+	stubs    map[string]protocol.Node
 }
 
 func (c creator) CreateNode(ctx context.Context, nodeType, nodeID string, config map[string]any) (protocol.Node, error) {
@@ -42,7 +54,7 @@ func (c creator) CreateNode(ctx context.Context, nodeType, nodeID string, config
 	return c.registry.CreateNode(ctx, nodeType, nodeID, config)
 }
 
-func newEngine(stubs map[string]stubNode) *engine.Engine {
+func newEngine(stubs map[string]protocol.Node) *engine.Engine {
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
 
@@ -78,7 +90,9 @@ func run(t *testing.T, e *engine.Engine, wf *models.Workflow, body map[string]an
 	data := map[string]any{"body": body}
 	execution := &models.ExecutionContext{ID: "exec", WorkflowID: wf.ID, Status: models.ExecutionStatusRunning, TriggerData: data}
 
-	require.NoError(t, e.Run(t.Context(), wf, execution, engine.TriggerActivation("trigger", data)))
+	deferred, err := e.Run(t.Context(), wf, execution, engine.TriggerActivation("trigger", data))
+	require.NoError(t, err)
+	require.Empty(t, deferred)
 
 	return execution
 }
@@ -137,8 +151,8 @@ func TestRunExecutesEveryParallelBranch(t *testing.T) {
 }
 
 func TestRunFollowsConnectedErrorPort(t *testing.T) {
-	stubs := map[string]stubNode{
-		failingType: {outputs: map[string]models.NodeResult{errorPort: {Data: map[string]any{"error": "boom"}}}},
+	stubs := map[string]protocol.Node{
+		failingType: stubNode{outputs: map[string]models.NodeResult{errorPort: {Data: map[string]any{"error": "boom"}}}},
 	}
 	wf := workflow(
 		[]*models.WorkflowNode{trigger(), node("step", failingType, nil), logNode("recover")},
@@ -166,7 +180,7 @@ func TestRunFailsOnUnhandledErrorPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stubs := map[string]stubNode{failingType: {outputs: map[string]models.NodeResult{errorPort: tt.result}}}
+			stubs := map[string]protocol.Node{failingType: stubNode{outputs: map[string]models.NodeResult{errorPort: tt.result}}}
 			wf := workflow(
 				[]*models.WorkflowNode{trigger(), node("step", failingType, nil), logNode("after")},
 				connect("trigger:success", "step:main"),
@@ -183,7 +197,7 @@ func TestRunFailsOnUnhandledErrorPort(t *testing.T) {
 }
 
 func TestRunFailsWhenNodeReturnsError(t *testing.T) {
-	stubs := map[string]stubNode{failingType: {err: errors.New("exploded")}}
+	stubs := map[string]protocol.Node{failingType: stubNode{err: errors.New("exploded")}}
 	wf := workflow(
 		[]*models.WorkflowNode{trigger(), node("step", failingType, nil)},
 		connect("trigger:success", "step:main"),
@@ -237,9 +251,76 @@ func TestRunStopsWhenContextIsCancelled(t *testing.T) {
 	wf := workflow([]*models.WorkflowNode{trigger()})
 	execution := &models.ExecutionContext{ID: "exec", Status: models.ExecutionStatusRunning}
 
-	err := newEngine(nil).Run(ctx, wf, execution, engine.TriggerActivation("trigger", nil))
+	_, err := newEngine(nil).Run(ctx, wf, execution, engine.TriggerActivation("trigger", nil))
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, models.ExecutionStatusRunning, execution.Status)
 	assert.Nil(t, execution.CompletedAt)
+}
+
+const holdType = "hold"
+
+func holding(at time.Time, err error) map[string]protocol.Node {
+	return map[string]protocol.Node{holdType: waiterNode{
+		stubNode: stubNode{outputs: map[string]models.NodeResult{"success": {Data: map[string]any{"held": true}}}},
+		at:       at,
+		err:      err,
+	}}
+}
+
+func TestRunDefersWaitingNodes(t *testing.T) {
+	at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("hold", holdType, nil), logNode("after"), logNode("now")},
+		connect("trigger:success", "hold:main"),
+		connect("trigger:success", "now:main"),
+		connect("hold:success", "after:main"),
+	)
+	data := map[string]any{"body": map[string]any{"name": "Ana"}}
+	execution := &models.ExecutionContext{ID: "exec", WorkflowID: wf.ID, Status: models.ExecutionStatusRunning, TriggerData: data}
+
+	deferred, err := newEngine(holding(at, nil)).Run(t.Context(), wf, execution, engine.TriggerActivation("trigger", data))
+
+	require.NoError(t, err)
+	require.Len(t, deferred, 1)
+	assert.Equal(t, "hold", deferred[0].NodeID)
+	assert.Equal(t, engine.ResumePort, deferred[0].Port)
+	assert.Equal(t, execution.NodeResults["trigger"].Data, deferred[0].Data)
+	assert.Equal(t, at, deferred[0].RunAt)
+	assert.Equal(t, models.ExecutionStatusRunning, execution.Status)
+	assert.Nil(t, execution.CompletedAt)
+	assert.Equal(t, string(models.NodeStatusWaiting), execution.NodeResults["hold"].Status)
+	assert.Equal(t, "2026-10-20T09:00:00Z", execution.NodeResults["hold"].Data["resume_at"])
+	assert.Contains(t, execution.NodeResults, "now")
+	assert.NotContains(t, execution.NodeResults, "after")
+}
+
+func TestRunResumesAWaitingNode(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("hold", holdType, nil), logNode("after")},
+		connect("trigger:success", "hold:main"),
+		connect("hold:success", "after:main"),
+	)
+	execution := &models.ExecutionContext{ID: "exec", WorkflowID: wf.ID, Status: models.ExecutionStatusRunning}
+
+	deferred, err := newEngine(holding(time.Now(), nil)).Run(t.Context(), wf, execution,
+		engine.Activation{NodeID: "hold", Port: engine.ResumePort, Data: map[string]any{"approved": true}})
+
+	require.NoError(t, err)
+	assert.Empty(t, deferred)
+	assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
+	assert.Equal(t, true, execution.NodeResults["hold"].Data["held"])
+	assert.Contains(t, execution.NodeResults, "after")
+}
+
+func TestRunFailsWhenTheWaitCannotBeComputed(t *testing.T) {
+	wf := workflow(
+		[]*models.WorkflowNode{trigger(), node("hold", holdType, nil)},
+		connect("trigger:success", "hold:main"),
+	)
+
+	execution := run(t, newEngine(holding(time.Time{}, errors.New("no start date"))), wf, nil)
+
+	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+	assert.Equal(t, `node "hold": no start date`, execution.ErrorMessage)
 }
