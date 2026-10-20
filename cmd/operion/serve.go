@@ -36,6 +36,9 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
 			&cli.StringSliceFlag{Name: "kafka-brokers", Usage: "Kafka brokers for trigger:event and trigger:kafka workflows; Kafka is off when empty", Sources: cli.EnvVars("KAFKA_BROKERS")},
 			&cli.StringFlag{Name: "kafka-group", Usage: "Kafka consumer group", Value: "operion", Sources: cli.EnvVars("KAFKA_GROUP")},
+			&cli.StringFlag{Name: "schema-registry-url", Usage: "Confluent Schema Registry for avro and protobuf events; they are skipped when empty", Sources: cli.EnvVars("SCHEMA_REGISTRY_URL")},
+			&cli.StringFlag{Name: "schema-registry-username", Usage: "Schema Registry basic auth username", Sources: cli.EnvVars("SCHEMA_REGISTRY_USERNAME")},
+			&cli.StringFlag{Name: "schema-registry-password", Usage: "Schema Registry basic auth password", Sources: cli.EnvVars("SCHEMA_REGISTRY_PASSWORD")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return serve(ctx, serveOptions{
@@ -45,18 +48,24 @@ func newServeCommand() *cli.Command {
 				logLevel:     command.String("log-level"),
 				kafkaBrokers: command.StringSlice("kafka-brokers"),
 				kafkaGroup:   command.String("kafka-group"),
+				schemaRegistry: ingest.SchemaRegistry{
+					URL:      command.String("schema-registry-url"),
+					Username: command.String("schema-registry-username"),
+					Password: command.String("schema-registry-password"),
+				},
 			})
 		},
 	}
 }
 
 type serveOptions struct {
-	databaseURL  string
-	port         int
-	pollInterval time.Duration
-	logLevel     string
-	kafkaBrokers []string
-	kafkaGroup   string
+	databaseURL    string
+	port           int
+	pollInterval   time.Duration
+	logLevel       string
+	kafkaBrokers   []string
+	kafkaGroup     string
+	schemaRegistry ingest.SchemaRegistry
 }
 
 func serve(ctx context.Context, options serveOptions) error {
@@ -104,7 +113,7 @@ func serve(ctx context.Context, options serveOptions) error {
 			})
 		}
 
-		handle := ingest.NewKafka(store, store.EventDefinitions(), jobs, logger).Handle
+		handle := ingest.NewKafka(store, store.EventDefinitions(), jobs, options.schemaRegistry, logger).Handle
 		loops = append(loops, ingest.NewKafkaConsumer(newReader, store, handle, options.pollInterval, logger).Run)
 	}
 
