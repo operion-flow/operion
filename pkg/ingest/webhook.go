@@ -15,7 +15,7 @@ import (
 )
 
 type Triggers interface {
-	WebhookTriggers(ctx context.Context, path string) ([]models.TriggerNodeMatch, error)
+	WebhookTriggers(ctx context.Context, tenantID, path string) ([]models.TriggerNodeMatch, error)
 }
 
 type Starter interface {
@@ -33,14 +33,15 @@ func NewWebhook(triggers Triggers, jobs Starter, logger *slog.Logger) *Webhook {
 }
 
 func (h *Webhook) Register(app *fiber.App) {
-	app.Post("/webhooks/*", h.handle)
+	app.Post("/webhooks/:tenant/*", h.handle)
 }
 
 func (h *Webhook) handle(c fiber.Ctx) error {
 	ctx := c.Context()
+	tenant := c.Params("tenant")
 	path := "/" + c.Params("*")
 
-	matches, err := h.triggers.WebhookTriggers(ctx, path)
+	matches, err := h.triggers.WebhookTriggers(ctx, tenant, path)
 	if err != nil {
 		return err
 	}

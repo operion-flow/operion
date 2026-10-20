@@ -19,10 +19,12 @@ type testWorkflowRepository struct {
 	workflows map[string]*models.Workflow
 }
 
-func (r *testWorkflowRepository) GetAll(ctx context.Context) ([]*models.Workflow, error) {
+func (r *testWorkflowRepository) GetAll(ctx context.Context, tenantID string) ([]*models.Workflow, error) {
 	workflows := make([]*models.Workflow, 0, len(r.workflows))
 	for _, w := range r.workflows {
-		workflows = append(workflows, w)
+		if w.TenantID == tenantID {
+			workflows = append(workflows, w)
+		}
 	}
 
 	return workflows, nil

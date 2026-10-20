@@ -7,12 +7,12 @@ import (
 	"github.com/dukex/operion/pkg/models"
 )
 
-func (p *Persistence) WebhookTriggers(ctx context.Context, path string) ([]models.TriggerNodeMatch, error) {
-	return p.publishedTriggers(ctx, models.NodeTypeTriggerWebhook, "webhook_path", path)
+func (p *Persistence) WebhookTriggers(ctx context.Context, tenantID, path string) ([]models.TriggerNodeMatch, error) {
+	return p.publishedTriggers(ctx, models.NodeTypeTriggerWebhook, "webhook_path", path, &tenantID)
 }
 
 func (p *Persistence) KafkaTriggers(ctx context.Context, topic string) ([]models.TriggerNodeMatch, error) {
-	return p.publishedTriggers(ctx, models.NodeTypeTriggerKafka, "topic", topic)
+	return p.publishedTriggers(ctx, models.NodeTypeTriggerKafka, "topic", topic, nil)
 }
 
 func (p *Persistence) KafkaTopics(ctx context.Context) ([]string, error) {
@@ -46,7 +46,7 @@ func (p *Persistence) KafkaTopics(ctx context.Context) ([]string, error) {
 	return topics, rows.Err()
 }
 
-func (p *Persistence) publishedTriggers(ctx context.Context, nodeType, configKey, value string) ([]models.TriggerNodeMatch, error) {
+func (p *Persistence) publishedTriggers(ctx context.Context, nodeType, configKey, value string, tenantID *string) ([]models.TriggerNodeMatch, error) {
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT n.workflow_id, n.id
 		FROM workflow_nodes n
@@ -55,8 +55,9 @@ func (p *Persistence) publishedTriggers(ctx context.Context, nodeType, configKey
 		  AND n.config->>$2 = $3
 		  AND w.status = $4
 		  AND w.deleted_at IS NULL
+		  AND ($5::text IS NULL OR w.tenant_id = $5)
 		ORDER BY n.workflow_id, n.id
-	`, nodeType, configKey, value, models.WorkflowStatusPublished)
+	`, nodeType, configKey, value, models.WorkflowStatusPublished, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query %s triggers: %w", nodeType, err)
 	}
