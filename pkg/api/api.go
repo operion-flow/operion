@@ -349,7 +349,7 @@ func (a *API) saveNodeType(c fiber.Ctx) error {
 		return problem(c, fiber.StatusInternalServerError, err)
 	}
 
-	return c.JSON(nodeType)
+	return c.JSON(withoutSecret(nodeType))
 }
 
 func (a *API) getNodeType(c fiber.Ctx) error {
@@ -358,7 +358,13 @@ func (a *API) getNodeType(c fiber.Ctx) error {
 		return problem(c, statusFor(err), err)
 	}
 
-	return c.JSON(nodeType)
+	return c.JSON(withoutSecret(*nodeType))
+}
+
+func withoutSecret(nodeType models.RemoteNodeType) models.RemoteNodeType {
+	nodeType.Secret = ""
+
+	return nodeType
 }
 
 func statusFor(err error) int {

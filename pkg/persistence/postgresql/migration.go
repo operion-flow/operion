@@ -167,5 +167,8 @@ func migrations() map[int]string {
 				updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 			);
 		`,
+		9: `
+			ALTER TABLE remote_node_types ADD COLUMN secret TEXT NOT NULL DEFAULT '';
+		`,
 	}
 }
