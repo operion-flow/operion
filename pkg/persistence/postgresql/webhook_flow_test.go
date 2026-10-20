@@ -25,6 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const acmeTenant = "acme"
+
 func saveWebhookWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persistence, path string, status models.WorkflowStatus) string {
 	t.Helper()
 
@@ -35,6 +37,7 @@ func saveWebhookWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persis
 		Description:     "greets new employees",
 		Status:          status,
 		WorkflowGroupID: id,
+		TenantID:        acmeTenant,
 		Variables:       map[string]any{"team": "Vendas"},
 		Nodes: []*models.WorkflowNode{
 			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": path}},
@@ -52,18 +55,25 @@ func TestWebhookTriggersMatchPublishedWorkflowsByPath(t *testing.T) {
 	saveWebhookWorkflow(ctx, t, p, "/employees", models.WorkflowStatusDraft)
 	saveWebhookWorkflow(ctx, t, p, "/other", models.WorkflowStatusPublished)
 
-	matches, err := p.WebhookTriggers(ctx, "/employees")
+	matches, err := p.WebhookTriggers(ctx, acmeTenant, "/employees")
 
 	require.NoError(t, err)
 	require.Len(t, matches, 1)
 	assert.Equal(t, published, matches[0].WorkflowID)
 	assert.Equal(t, triggerNodeID, matches[0].TriggerNode.ID)
+
+	otherTenant, err := p.WebhookTriggers(ctx, "globex", "/employees")
+	require.NoError(t, err)
+	assert.Empty(t, otherTenant)
 }
 
 func request(t *testing.T, app *fiber.App, method, target, body string) (int, map[string]any) {
 	t.Helper()
 
-	resp, err := app.Test(httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body)))
+	req := httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
+	req.Header.Set("X-Tenant-Id", acmeTenant)
+
+	resp, err := app.Test(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -113,7 +123,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, string(models.WorkflowStatusPublished), published["status"])
 
-	status, accepted := request(t, app, http.MethodPost, "/webhooks/lifecycle", `{"employee": "Ana"}`)
+	status, accepted := request(t, app, http.MethodPost, "/webhooks/"+acmeTenant+"/lifecycle", `{"employee": "Ana"}`)
 	require.Equal(t, http.StatusAccepted, status)
 
 	executionID := accepted["executions"].([]any)[0].(string)

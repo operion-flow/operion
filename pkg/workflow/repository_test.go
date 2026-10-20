@@ -124,7 +124,7 @@ func TestRepository_FetchAll(t *testing.T) {
 	}
 
 	// Fetch all workflows
-	fetchedWorkflows, err := repo.FetchAll(t.Context())
+	fetchedWorkflows, err := repo.FetchAll(t.Context(), "")
 	require.NoError(t, err)
 	assert.Len(t, fetchedWorkflows, 2)
 

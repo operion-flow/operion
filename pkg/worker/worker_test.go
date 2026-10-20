@@ -23,15 +23,16 @@ type pending struct {
 }
 
 type fakeJobs struct {
-	pending []pending
-	done    []*models.ExecutionContext
-	errs    []error
-	onEmpty func()
+	pending  []pending
+	done     []*models.ExecutionContext
+	enqueued []models.Job
+	errs     []error
+	onEmpty  func()
 }
 
 func (f *fakeJobs) ProcessNext(
 	ctx context.Context,
-	process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) error,
+	process func(ctx context.Context, job models.Job, execution *models.ExecutionContext) ([]models.Job, error),
 ) (bool, error) {
 	if len(f.pending) == 0 {
 		f.onEmpty()
@@ -42,13 +43,15 @@ func (f *fakeJobs) ProcessNext(
 	next := f.pending[0]
 	f.pending = f.pending[1:]
 
-	if err := process(ctx, next.job, next.execution); err != nil {
+	enqueued, err := process(ctx, next.job, next.execution)
+	if err != nil {
 		f.errs = append(f.errs, err)
 
 		return true, err
 	}
 
 	f.done = append(f.done, next.execution)
+	f.enqueued = append(f.enqueued, enqueued...)
 
 	return true, nil
 }
@@ -164,4 +167,41 @@ func TestRunKeepsJobWhenContextIsCancelled(t *testing.T) {
 	require.Len(t, jobs.errs, 1)
 	require.ErrorIs(t, jobs.errs[0], context.Canceled)
 	assert.NotContains(t, logs.String(), "level=ERROR")
+}
+
+func TestRunQueuesAJobForAWaitingNode(t *testing.T) {
+	wf := greetWorkflow()
+	wf.Nodes = append(wf.Nodes, &models.WorkflowNode{ID: "hold", Type: "wait", Config: map[string]any{"duration": "1h"}})
+	wf.Connections = append(wf.Connections, &models.Connection{ID: "c2", SourcePort: "trigger:success", TargetPort: "hold:main"})
+
+	jobs := &fakeJobs{pending: []pending{job("exec-1", "wf")}}
+	before := time.Now()
+
+	err := runUntilEmpty(t, jobs, fakeWorkflows{workflows: map[string]*models.Workflow{"wf": wf}}, io.Discard)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, jobs.done, 1)
+	assert.Equal(t, models.ExecutionStatusRunning, jobs.done[0].Status)
+	require.Len(t, jobs.enqueued, 1)
+	assert.NotEmpty(t, jobs.enqueued[0].ID)
+	assert.Equal(t, "exec-1", jobs.enqueued[0].ExecutionID)
+	assert.Equal(t, "hold", jobs.enqueued[0].NodeID)
+	assert.Equal(t, engine.ResumePort, jobs.enqueued[0].Port)
+	assert.WithinDuration(t, before.Add(time.Hour), jobs.enqueued[0].RunAt, time.Minute)
+}
+
+func TestRunSkipsJobsOfFinishedExecutions(t *testing.T) {
+	finished := job("exec-1", "wf")
+	finished.execution.Status = models.ExecutionStatusFailed
+	jobs := &fakeJobs{pending: []pending{finished}}
+
+	var logs bytes.Buffer
+
+	err := runUntilEmpty(t, jobs, fakeWorkflows{err: errors.New("must not load the workflow")}, &logs)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, jobs.done, 1)
+	assert.Empty(t, jobs.done[0].NodeResults)
+	assert.Empty(t, jobs.enqueued)
+	assert.Contains(t, logs.String(), "job skipped")
 }

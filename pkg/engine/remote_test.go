@@ -65,11 +65,11 @@ func TestRemoteNodeRunsInsideTheWorkflow(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	e := remoteEngine(server.URL)
-	wf := benefitWorkflow(map[string]any{employeeField: "{{.trigger_data.body.name}}"})
+	wf := benefitWorkflow(map[string]any{employeeField: "{{.trigger_data.body.employee}}"})
 
 	require.NoError(t, e.Validate(t.Context(), wf))
 
-	execution := run(t, e, wf, map[string]any{"name": employeeName})
+	execution := run(t, e, wf, map[string]any{employeeField: employeeName})
 
 	assert.Equal(t, map[string]any{employeeField: employeeName}, execution.NodeResults["benefit"].Data)
 	assert.Contains(t, execution.NodeResults, "approved")
