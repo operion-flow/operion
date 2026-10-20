@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +23,10 @@ const (
 	tenantHeader           = "X-Tenant-Id"
 )
 
-var errTenantRequired = errors.New(tenantHeader + " header is required")
+var (
+	errTenantRequired = errors.New(tenantHeader + " header is required")
+	errUnauthorized   = errors.New("a valid bearer token is required")
+)
 
 type Workflows interface {
 	FetchAll(ctx context.Context, tenantID string) ([]*models.Workflow, error)
@@ -76,19 +80,37 @@ func New(workflows Workflows, publisher Publisher, executions Executions, catalo
 	}
 }
 
-func (a *API) Register(app *fiber.App) {
-	app.Get("/workflows", a.listWorkflows)
-	app.Post("/workflows", a.createWorkflow)
-	app.Get("/workflows/:id", a.getWorkflow)
-	app.Post("/workflows/:id/publish", a.publishWorkflow)
-	app.Get("/workflows/:id/executions", a.listExecutions)
-	app.Get("/executions/:id", a.getExecution)
-	app.Post("/executions/:id/nodes/:node_id/resume", a.resumeNode)
-	app.Put("/platform/event-definitions/:key", a.saveEventDefinition)
-	app.Get("/platform/event-definitions/:key", a.getEventDefinition)
-	app.Get("/catalog/events", a.listCatalog)
-	app.Put("/platform/node-types/:id", a.saveNodeType)
-	app.Get("/platform/node-types/:id", a.getNodeType)
+func (a *API) Register(app *fiber.App, token string) {
+	private := authorized(token)
+
+	app.Get("/workflows", private(a.listWorkflows))
+	app.Post("/workflows", private(a.createWorkflow))
+	app.Get("/workflows/:id", private(a.getWorkflow))
+	app.Post("/workflows/:id/publish", private(a.publishWorkflow))
+	app.Get("/workflows/:id/executions", private(a.listExecutions))
+	app.Get("/executions/:id", private(a.getExecution))
+	app.Post("/executions/:id/nodes/:node_id/resume", private(a.resumeNode))
+	app.Put("/platform/event-definitions/:key", private(a.saveEventDefinition))
+	app.Get("/platform/event-definitions/:key", private(a.getEventDefinition))
+	app.Get("/catalog/events", private(a.listCatalog))
+	app.Put("/platform/node-types/:id", private(a.saveNodeType))
+	app.Get("/platform/node-types/:id", private(a.getNodeType))
+}
+
+func authorized(token string) func(fiber.Handler) fiber.Handler {
+	expected := []byte("Bearer " + token)
+
+	return func(next fiber.Handler) fiber.Handler {
+		return func(c fiber.Ctx) error {
+			if token == "" || subtle.ConstantTimeCompare([]byte(c.Get(fiber.HeaderAuthorization)), expected) != 1 {
+				c.Set(fiber.HeaderWWWAuthenticate, "Bearer")
+
+				return problem(c, fiber.StatusUnauthorized, errUnauthorized)
+			}
+
+			return next(c)
+		}
+	}
 }
 
 func (a *API) listWorkflows(c fiber.Ctx) error {
