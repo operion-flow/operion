@@ -12,6 +12,7 @@ import (
 
 	"github.com/dukex/operion/pkg/engine"
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/nodes/remote"
 	"github.com/dukex/operion/pkg/registry"
 	cli "github.com/urfave/cli/v3"
 )
@@ -26,14 +27,15 @@ func newRunCommand() *cli.Command {
 			&cli.StringFlag{Name: "workflow", Usage: "Path to the workflow JSON", Required: true},
 			&cli.StringFlag{Name: "event", Usage: "Path to the event JSON passed to the trigger", Required: true},
 			&cli.StringFlag{Name: "trigger", Usage: "Trigger node ID, required when the workflow has more than one trigger"},
+			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, for workflows that use them"},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			return runWorkflow(ctx, command.String("workflow"), command.String("event"), command.String("trigger"), command.Root().Writer)
+			return runWorkflow(ctx, command.String("workflow"), command.String("event"), command.String("trigger"), command.String("node-types"), command.Root().Writer)
 		},
 	}
 }
 
-func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string, out io.Writer) error {
+func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID, nodeTypesPath string, out io.Writer) error {
 	var workflow models.Workflow
 	if err := readJSON(workflowPath, &workflow); err != nil {
 		return err
@@ -49,8 +51,14 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string,
 		return err
 	}
 
+	nodeTypes, err := readNodeTypes(nodeTypesPath)
+	if err != nil {
+		return err
+	}
+
 	reg := registry.NewRegistry()
 	reg.RegisterDefaultNodes()
+	reg.UseRemoteTypes(nodeTypes)
 	e := engine.New(reg)
 
 	if err := e.Validate(ctx, &workflow); err != nil {
@@ -90,6 +98,14 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID string,
 	}
 
 	return nil
+}
+
+func readNodeTypes(path string) (remote.Types, error) {
+	if path == "" {
+		return nil, nil
+	}
+
+	return remote.ReadTypes(path)
 }
 
 func readJSON(path string, target any) error {

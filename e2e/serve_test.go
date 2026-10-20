@@ -148,7 +148,7 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-func startServe(t *testing.T) string {
+func startServe(t *testing.T, flags ...string) string {
 	t.Helper()
 
 	setup(t)
@@ -158,7 +158,8 @@ func startServe(t *testing.T) string {
 
 	var output bytes.Buffer
 
-	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, "serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn") //nolint:gosec // runs the binary this test just built
+	args := append([]string{"serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn"}, flags...)
+	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, args...) //nolint:gosec // runs the binary this test just built
 
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL, "OPERION_API_TOKEN="+apiToken, "OPERION_PUBLIC_URL=http://127.0.0.1:"+port)
 	cmd.Stdout = &output
@@ -467,6 +468,18 @@ func TestARemoteNodeThatNeverAnswersFailsAtItsDeadline(t *testing.T) {
 	execution := finished(t, base, executionID)
 	assert.Equal(t, "failed", execution[statusKey])
 	assert.Contains(t, execution["error_message"], "did not call back before its deadline")
+}
+
+func TestServeRegistersNodeTypesFromAFile(t *testing.T) {
+	nodeTypes := filepath.Join(t.TempDir(), "node-types.json")
+	require.NoError(t, os.WriteFile(nodeTypes, []byte(`{"create_benefit": {"name": "Criar benefício", "url": "http://benefits.internal/operion", "outputs": ["approved"]}}`), 0o600))
+
+	base := startServe(t, "--node-types", nodeTypes)
+
+	status, nodeType := call(t, http.MethodGet, base+"/platform/node-types/create_benefit", nil)
+	require.Equal(t, http.StatusOK, status, nodeType)
+	assert.Equal(t, "Criar benefício", nodeType["name"])
+	assert.Equal(t, []any{"approved", "error"}, nodeType["outputs"])
 }
 
 func TestOnlyTheAPINeedsTheToken(t *testing.T) {

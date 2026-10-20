@@ -341,11 +341,9 @@ func (a *API) saveNodeType(c fiber.Ctx) error {
 
 	nodeType.ID = c.Params("id")
 
-	if err := a.validate.Struct(&nodeType); err != nil {
+	if err := remote.Prepare(&nodeType); err != nil {
 		return problem(c, fiber.StatusBadRequest, err)
 	}
-
-	remote.Normalize(&nodeType)
 
 	if err := a.nodeTypes.Save(c.Context(), &nodeType); err != nil {
 		return problem(c, fiber.StatusInternalServerError, err)
