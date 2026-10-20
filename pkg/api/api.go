@@ -18,10 +18,13 @@ import (
 const (
 	defaultExecutionsLimit = 50
 	maxExecutionsLimit     = 500
+	tenantHeader           = "X-Tenant-Id"
 )
 
+var errTenantRequired = errors.New(tenantHeader + " header is required")
+
 type Workflows interface {
-	FetchAll(ctx context.Context) ([]*models.Workflow, error)
+	FetchAll(ctx context.Context, tenantID string) ([]*models.Workflow, error)
 	FetchByID(ctx context.Context, id string) (*models.Workflow, error)
 	Create(ctx context.Context, workflow *models.Workflow) (*models.Workflow, error)
 }
@@ -79,7 +82,12 @@ func (a *API) Register(app *fiber.App) {
 }
 
 func (a *API) listWorkflows(c fiber.Ctx) error {
-	workflows, err := a.workflows.FetchAll(c.Context())
+	tenant, err := tenantOf(c)
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	workflows, err := a.workflows.FetchAll(c.Context(), tenant)
 	if err != nil {
 		return problem(c, fiber.StatusInternalServerError, err)
 	}
@@ -88,12 +96,18 @@ func (a *API) listWorkflows(c fiber.Ctx) error {
 }
 
 func (a *API) createWorkflow(c fiber.Ctx) error {
+	tenant, err := tenantOf(c)
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
 	var wf models.Workflow
 	if err := json.Unmarshal(c.Body(), &wf); err != nil {
 		return problem(c, fiber.StatusBadRequest, err)
 	}
 
 	wf.Status = models.WorkflowStatusDraft
+	wf.TenantID = tenant
 
 	if err := a.validate.Struct(&wf); err != nil {
 		return problem(c, fiber.StatusBadRequest, err)
@@ -108,7 +122,7 @@ func (a *API) createWorkflow(c fiber.Ctx) error {
 }
 
 func (a *API) getWorkflow(c fiber.Ctx) error {
-	wf, err := a.workflows.FetchByID(c.Context(), c.Params("id"))
+	wf, err := a.ownedWorkflow(c, c.Params("id"))
 	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
@@ -117,7 +131,12 @@ func (a *API) getWorkflow(c fiber.Ctx) error {
 }
 
 func (a *API) publishWorkflow(c fiber.Ctx) error {
-	published, err := a.publisher.PublishWorkflow(c.Context(), c.Params("id"))
+	wf, err := a.ownedWorkflow(c, c.Params("id"))
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	published, err := a.publisher.PublishWorkflow(c.Context(), wf.ID)
 	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
@@ -126,7 +145,7 @@ func (a *API) publishWorkflow(c fiber.Ctx) error {
 }
 
 func (a *API) listExecutions(c fiber.Ctx) error {
-	wf, err := a.workflows.FetchByID(c.Context(), c.Params("id"))
+	wf, err := a.ownedWorkflow(c, c.Params("id"))
 	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
@@ -155,12 +174,29 @@ func (a *API) listExecutions(c fiber.Ctx) error {
 }
 
 func (a *API) getExecution(c fiber.Ctx) error {
-	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	execution, err := a.ownedExecution(c)
 	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
 
 	return c.JSON(execution)
+}
+
+func (a *API) ownedExecution(c fiber.Ctx) (*models.ExecutionContext, error) {
+	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := a.ownedWorkflow(c, execution.WorkflowID); err != nil {
+		if errors.Is(err, workflow.ErrWorkflowNotFound) {
+			err = fmt.Errorf("%w: %s", persistence.ErrExecutionNotFound, execution.ID)
+		}
+
+		return nil, err
+	}
+
+	return execution, nil
 }
 
 func (a *API) resumeNode(c fiber.Ctx) error {
@@ -172,7 +208,7 @@ func (a *API) resumeNode(c fiber.Ctx) error {
 		}
 	}
 
-	execution, err := a.executions.GetExecutionContext(c.Context(), c.Params("id"))
+	execution, err := a.ownedExecution(c)
 	if err != nil {
 		return problem(c, statusFor(err), err)
 	}
@@ -182,6 +218,33 @@ func (a *API) resumeNode(c fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"execution": execution.ID})
+}
+
+func tenantOf(c fiber.Ctx) (string, error) {
+	tenant := c.Get(tenantHeader)
+	if tenant == "" {
+		return "", errTenantRequired
+	}
+
+	return tenant, nil
+}
+
+func (a *API) ownedWorkflow(c fiber.Ctx, id string) (*models.Workflow, error) {
+	tenant, err := tenantOf(c)
+	if err != nil {
+		return nil, err
+	}
+
+	wf, err := a.workflows.FetchByID(c.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	if wf.TenantID != tenant {
+		return nil, fmt.Errorf("%w: %s", workflow.ErrWorkflowNotFound, id)
+	}
+
+	return wf, nil
 }
 
 func (a *API) saveEventDefinition(c fiber.Ctx) error {
@@ -248,6 +311,8 @@ func statusFor(err error) int {
 		return fiber.StatusUnprocessableEntity
 	case errors.Is(err, persistence.ErrNodeNotWaiting):
 		return fiber.StatusConflict
+	case errors.Is(err, errTenantRequired):
+		return fiber.StatusBadRequest
 	default:
 		return fiber.StatusInternalServerError
 	}

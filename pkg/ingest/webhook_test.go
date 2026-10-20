@@ -23,8 +23,8 @@ type fakeTriggers struct {
 	err     error
 }
 
-func (f fakeTriggers) WebhookTriggers(_ context.Context, path string) ([]models.TriggerNodeMatch, error) {
-	return f.matches[path], f.err
+func (f fakeTriggers) WebhookTriggers(_ context.Context, tenantID, path string) ([]models.TriggerNodeMatch, error) {
+	return f.matches[tenantID+path], f.err
 }
 
 type started struct {
@@ -73,11 +73,11 @@ func post(t *testing.T, triggers fakeTriggers, starter *fakeStarter, target, bod
 
 func TestWebhookStartsOneExecutionPerMatchingWorkflow(t *testing.T) {
 	triggers := fakeTriggers{matches: map[string][]models.TriggerNodeMatch{
-		"/employees/created": {match("wf-1", "trigger"), match("wf-2", "hook")},
+		"acme/employees/created": {match("wf-1", "trigger"), match("wf-2", "hook")},
 	}}
 	starter := &fakeStarter{}
 
-	status, body := post(t, triggers, starter, "/webhooks/employees/created?source=hr", `{"name": "Ana"}`)
+	status, body := post(t, triggers, starter, "/webhooks/acme/employees/created?source=hr", `{"name": "Ana"}`)
 
 	require.Equal(t, http.StatusAccepted, status)
 	require.Len(t, starter.started, 2)
@@ -96,7 +96,7 @@ func TestWebhookStartsOneExecutionPerMatchingWorkflow(t *testing.T) {
 	assert.Equal(t, "external", first.job.Port)
 	assert.Equal(t, map[string]any{"name": "Ana"}, first.job.Data["body"])
 	assert.Equal(t, http.MethodPost, first.job.Data["method"])
-	assert.Equal(t, "/webhooks/employees/created?source=hr", first.job.Data["url"])
+	assert.Equal(t, "/webhooks/acme/employees/created?source=hr", first.job.Data["url"])
 	assert.Equal(t, map[string]any{"source": "hr"}, first.job.Data["query"])
 	assert.Equal(t, "application/json", first.job.Data["headers"].(map[string]any)["Content-Type"])
 	assert.Equal(t, first.job.Data, first.execution.TriggerData)
@@ -104,10 +104,10 @@ func TestWebhookStartsOneExecutionPerMatchingWorkflow(t *testing.T) {
 }
 
 func TestWebhookAcceptsEmptyBody(t *testing.T) {
-	triggers := fakeTriggers{matches: map[string][]models.TriggerNodeMatch{"/ping": {match("wf", "trigger")}}}
+	triggers := fakeTriggers{matches: map[string][]models.TriggerNodeMatch{"acme/ping": {match("wf", "trigger")}}}
 	starter := &fakeStarter{}
 
-	status, _ := post(t, triggers, starter, "/webhooks/ping", "")
+	status, _ := post(t, triggers, starter, "/webhooks/acme/ping", "")
 
 	require.Equal(t, http.StatusAccepted, status)
 	require.Len(t, starter.started, 1)
@@ -117,7 +117,7 @@ func TestWebhookAcceptsEmptyBody(t *testing.T) {
 func TestWebhookRejectsRequests(t *testing.T) {
 	errLookup := errors.New("lookup failed")
 	errStart := errors.New("start failed")
-	matching := map[string][]models.TriggerNodeMatch{"/hook": {match("wf", "trigger")}}
+	matching := map[string][]models.TriggerNodeMatch{"acme/hook": {match("wf", "trigger")}}
 
 	tests := []struct {
 		name     string
@@ -134,10 +134,20 @@ func TestWebhookRejectsRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status, _ := post(t, tt.triggers, tt.starter, "/webhooks/hook", tt.body)
+			status, _ := post(t, tt.triggers, tt.starter, "/webhooks/acme/hook", tt.body)
 
 			assert.Equal(t, tt.status, status)
 			assert.Empty(t, tt.starter.started)
 		})
 	}
+}
+
+func TestWebhookOnlyStartsWorkflowsOfThePathTenant(t *testing.T) {
+	triggers := fakeTriggers{matches: map[string][]models.TriggerNodeMatch{"acme/employees": {match("wf", "trigger")}}}
+	starter := &fakeStarter{}
+
+	status, _ := post(t, triggers, starter, "/webhooks/globex/employees", `{}`)
+
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Empty(t, starter.started)
 }

@@ -142,6 +142,7 @@ func startWaitingExecution(ctx context.Context, t *testing.T, p *postgresql.Pers
 		Description:     "waits before greeting",
 		Status:          models.WorkflowStatusPublished,
 		WorkflowGroupID: workflowID,
+		TenantID:        acmeTenant,
 		Nodes: []*models.WorkflowNode{
 			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/later"}},
 			{ID: holdNodeID, Name: holdNodeID, Type: "wait", Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{"duration": "1h"}},
