@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,8 +144,8 @@ func TestRunStopsOnCancelledContextAndWriteErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	require.ErrorIs(t, runWorkflow(ctx, workflow, event, "", &bytes.Buffer{}), context.Canceled)
-	require.ErrorIs(t, runWorkflow(t.Context(), workflow, event, "", failingWriter{}), errWrite)
+	require.ErrorIs(t, runWorkflow(ctx, workflow, event, "", "", &bytes.Buffer{}), context.Canceled)
+	require.ErrorIs(t, runWorkflow(t.Context(), workflow, event, "", "", failingWriter{}), errWrite)
 }
 
 func TestRunSkipsWaitsAndFinishesTheExecution(t *testing.T) {
@@ -170,4 +172,40 @@ func TestRunSkipsWaitsAndFinishesTheExecution(t *testing.T) {
 	results := execution["node_results"].(map[string]any)
 	assert.Equal(t, "success", results["hold"].(map[string]any)["status"])
 	assert.Equal(t, "hello Ana", results["greet"].(map[string]any)["data"].(map[string]any)["result"])
+}
+
+func TestRunResolvesRemoteNodeTypesFromAFile(t *testing.T) {
+	var seen map[string]any
+
+	plugin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&seen))
+
+		_, _ = w.Write([]byte(`{"port": "approved", "data": {"benefit_id": "b-1"}}`))
+	}))
+	t.Cleanup(plugin.Close)
+
+	nodeTypes := writeFile(t, "node-types.json", `{"create_benefit": {"name": "Criar benefício", "url": "`+plugin.URL+`", "outputs": ["approved"]}}`)
+	workflow := writeFile(t, "workflow.json", `{
+  "id": "benefit",
+  "name": "benefit",
+  "nodes": [
+    {"id": "trigger", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/hook"}},
+    {"id": "benefit", "type": "create_benefit", "category": "action", "config": {"employee": "{{.trigger_data.body.name}}"}}
+  ],
+  "connections": [{"id": "c1", "source_port": "trigger:success", "target_port": "benefit:main"}]
+}`)
+	event := writeFile(t, "event.json", `{"body": {"name": "Ana"}}`)
+
+	execution, err := run(t, "--workflow", workflow, "--event", event, "--node-types", nodeTypes)
+
+	require.NoError(t, err)
+	assert.Equal(t, "completed", execution["status"])
+	assert.Equal(t, "b-1", execution["node_results"].(map[string]any)["benefit"].(map[string]any)["data"].(map[string]any)["benefit_id"])
+	assert.Equal(t, map[string]any{"employee": "Ana"}, seen["config"])
+
+	_, err = run(t, "--workflow", workflow, "--event", event)
+	require.ErrorContains(t, err, "node type not registered")
+
+	_, err = run(t, "--workflow", workflow, "--event", event, "--node-types", writeFile(t, "bad.json", `{"create_benefit": {"url": "`+plugin.URL+`"}}`))
+	require.ErrorContains(t, err, `node type "create_benefit"`)
 }
