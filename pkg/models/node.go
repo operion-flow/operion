@@ -18,6 +18,7 @@ const (
 	NodeTypeTriggerWebhook   = "trigger:webhook"
 	NodeTypeTriggerScheduler = "trigger:scheduler"
 	NodeTypeTriggerKafka     = "trigger:kafka"
+	NodeTypeTriggerEvent     = "trigger:event"
 )
 
 // Connection connects two ports directly (fully normalized).

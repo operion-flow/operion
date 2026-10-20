@@ -82,7 +82,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'X-Tenant-Id: acme'
 | `--port` | `PORT` | `9091` | HTTP port |
 | `--poll-interval` | | `1s` | How long the worker and the scheduler wait when nothing is due |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
-| `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:kafka` workflows; Kafka is off when empty |
+| `--kafka-brokers` | `KAFKA_BROKERS` | | Kafka brokers for `trigger:event` and `trigger:kafka` workflows; Kafka is off when empty |
 | `--kafka-group` | `KAFKA_GROUP` | `operion` | Kafka consumer group |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
@@ -113,8 +113,26 @@ Triggers:
 
 - `trigger:webhook`: `webhook_path`. The event carries `body`, `headers`, `query`, `method` and `url`.
 - `trigger:scheduler`: `cron_expression` (standard five fields) and optional `timezone`.
+- `trigger:event`: `event`, the key of a catalog event. The event carries `event`, `tenant_id`, `payload` (the decoded message), `headers`, `key`, `topic`, `partition`, `offset` and `timestamp`.
+- `trigger:kafka`: `topic`. Every message on the topic starts every published workflow listening on it, whatever its tenant, so tenant workflows use `trigger:event`.
 
-Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Every node has an `error` port; an error on an unconnected `error` port fails the execution.
+### Event catalog
+
+The platform operator registers the events tenants can build on with `PUT /platform/event-definitions/:key`:
+
+```json
+{
+  "name": "Employee Criado",
+  "topic": "tp_employee_created",
+  "format": "json",
+  "tenant_from": "payload",
+  "tenant_key": "company.id"
+}
+```
+
+`tenant_from` says where the tenant is: `payload` reads the dotted path `tenant_key` from the message, and `header` reads the Kafka header named `tenant_key`. A message on the topic starts only the published `trigger:event` workflows of that tenant. A message that is not a JSON object, or has no tenant, is logged and skipped. Only `json` is decoded for now; `avro` and `protobuf` definitions are skipped until their decoders land. Publishing a workflow whose `trigger:event` names an event missing from the catalog returns 422.
+
+Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Every action has an `error` port; an error on an unconnected `error` port fails the execution.
 
 Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and `wait_until` holds it until `until`, a template that renders an RFC 3339 time. While a branch waits, its node result has status `waiting` and the execution stays `running`; the worker continues the branch from a job due at that time. `operion run` does not wait and continues the branch right away.
 
