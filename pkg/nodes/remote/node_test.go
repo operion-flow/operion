@@ -1,11 +1,17 @@
 package remote_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
@@ -98,6 +104,56 @@ func TestExecuteSendsTheContextAndRoutesToTheAnsweredPort(t *testing.T) {
 	assert.Equal(t, event(), seen["trigger_data"])
 	assert.Equal(t, map[string]any{"trigger": event()}, seen["node_results"])
 	assert.Equal(t, map[string]any{"team": team}, seen["variables"])
+}
+
+func TestExecuteSignsTheBodyWhenTheTypeHasASecret(t *testing.T) {
+	const secret = "a-secret-of-sixteen-bytes"
+
+	var (
+		timestamp, signature string
+		body                 []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timestamp = r.Header.Get("X-Operion-Timestamp")
+		signature = r.Header.Get("X-Operion-Signature")
+		body, _ = io.ReadAll(r.Body)
+
+		_, _ = w.Write([]byte(`{"port": "approved"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	nodeType := benefitType(server.URL)
+	nodeType.Secret = secret
+
+	outputs, err := remote.New(nodeType, "benefit", nil, server.Client()).Execute(execution(), input())
+	require.NoError(t, err)
+	require.Contains(t, outputs, "approved")
+
+	sent, err := strconv.ParseInt(timestamp, 10, 64)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), time.Unix(sent, 0), 5*time.Second)
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "." + string(body)))
+	assert.Equal(t, "sha256="+hex.EncodeToString(mac.Sum(nil)), signature)
+}
+
+func TestExecuteSendsNoSignatureWithoutASecret(t *testing.T) {
+	headers := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers <- r.Header.Clone()
+
+		_, _ = w.Write([]byte(`{"port": "approved"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := remote.New(benefitType(server.URL), "benefit", nil, server.Client()).Execute(execution(), input())
+	require.NoError(t, err)
+
+	sent := <-headers
+	assert.Empty(t, sent.Get("X-Operion-Signature"))
+	assert.Empty(t, sent.Get("X-Operion-Timestamp"))
 }
 
 func TestExecuteMarksTheErrorPortAsError(t *testing.T) {

@@ -592,6 +592,20 @@ func TestSaveAndGetNodeType(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, status)
 }
 
+func TestNodeTypeSecretIsWriteOnly(t *testing.T) {
+	s := newServer()
+
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits", "secret": "a-secret-of-sixteen-bytes"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.NotContains(t, body, "secret")
+	assert.Equal(t, "a-secret-of-sixteen-bytes", s.nodeTypes.nodeTypes["create_benefit"].Secret)
+
+	status, body = s.do(t, http.MethodGet, "/platform/node-types/create_benefit", "")
+	require.Equal(t, http.StatusOK, status)
+	assert.NotContains(t, body, "secret")
+	assert.Equal(t, "a-secret-of-sixteen-bytes", s.nodeTypes.nodeTypes["create_benefit"].Secret)
+}
+
 func TestSaveNodeTypeRejectsBadInput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -601,6 +615,7 @@ func TestSaveNodeTypeRejectsBadInput(t *testing.T) {
 		{name: "missing url", body: `{"name": "Criar benefício"}`},
 		{name: "not an http url", body: `{"name": "Criar benefício", "url": "ftp://benefits"}`},
 		{name: "timeout too long", body: `{"name": "Criar benefício", "url": "https://benefits", "timeout_seconds": 301}`},
+		{name: "short secret", body: `{"name": "Criar benefício", "url": "https://benefits", "secret": "short"}`},
 	}
 
 	for _, tt := range tests {

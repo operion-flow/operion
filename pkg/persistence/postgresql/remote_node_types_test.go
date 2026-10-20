@@ -34,6 +34,7 @@ func TestRemoteNodeTypesSaveAndGet(t *testing.T) {
 		Name:           "Criar benefício",
 		Description:    "Cria o benefício no sistema de benefícios",
 		URL:            "http://benefits.internal/v2/run",
+		Secret:         "a-secret-of-sixteen-bytes",
 		Outputs:        []string{approvedPort, "rejected", errorPort},
 		TimeoutSeconds: 20,
 	}
@@ -44,6 +45,7 @@ func TestRemoteNodeTypesSaveAndGet(t *testing.T) {
 	loaded, err := types.Get(ctx, "create_benefit")
 	require.NoError(t, err)
 	assert.Equal(t, "http://benefits.internal/v2/run", loaded.URL)
+	assert.Equal(t, "a-secret-of-sixteen-bytes", loaded.Secret)
 	assert.Equal(t, "Cria o benefício no sistema de benefícios", loaded.Description)
 	assert.Equal(t, []string{approvedPort, "rejected", errorPort}, loaded.Outputs)
 	assert.Equal(t, 20, loaded.TimeoutSeconds)
