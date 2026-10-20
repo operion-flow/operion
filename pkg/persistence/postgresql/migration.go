@@ -154,5 +154,18 @@ func migrations() map[int]string {
 			ALTER TABLE workflow_nodes ADD COLUMN retry JSONB;
 			ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
 		`,
+		8: `
+			CREATE TABLE remote_node_types (
+				id VARCHAR(255) PRIMARY KEY,
+				name VARCHAR(255) NOT NULL,
+				description TEXT NOT NULL DEFAULT '',
+				url TEXT NOT NULL,
+				schema JSONB,
+				outputs JSONB NOT NULL,
+				timeout_seconds INTEGER NOT NULL,
+				created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+				updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+			);
+		`,
 	}
 }

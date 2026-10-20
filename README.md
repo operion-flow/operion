@@ -106,6 +106,8 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
 | `GET /catalog/events` | List the events tenants can build workflows on |
 | `PUT /platform/event-definitions/:key`, `GET /platform/event-definitions/:key` | Register and read an event definition (platform operator) |
+| `PUT /platform/node-types/:id` | Register or replace a remote node type |
+| `GET /platform/node-types/:id` | Get a remote node type |
 | `GET /livez`, `GET /readyz` | Health checks |
 
 Errors are returned as `application/problem+json`.
@@ -149,6 +151,45 @@ Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
 Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`.
+
+### Remote nodes
+
+A node type can live in any service that speaks HTTP. The platform registers it once:
+
+```bash
+curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Content-Type: application/json' -d '{
+  "name": "Criar benefício",
+  "url": "http://benefits.internal/operion",
+  "outputs": ["approved", "rejected"],
+  "timeout_seconds": 10,
+  "schema": {"required": ["amount"]}
+}'
+```
+
+Workflows then use `create_benefit` as a node type. `outputs` defaults to `["success"]`, `error` is always added, `timeout_seconds` defaults to 30 (at most 300) and `schema.required` lists the config fields a workflow must set. A built-in node type with the same id wins.
+
+When the node runs, Operion sends `POST <url>` with `Content-Type: application/json`:
+
+```json
+{
+  "execution_id": "...",
+  "workflow_id": "...",
+  "node_id": "benefit",
+  "config": {"amount": "100"},
+  "input": {},
+  "trigger_data": {},
+  "node_results": {"<node_id>": {}},
+  "variables": {}
+}
+```
+
+`config` is already rendered. The service answers 2xx with the port to follow and its data:
+
+```json
+{"port": "approved", "data": {"benefit_id": "b-1"}}
+```
+
+A non-2xx status, a timeout, a body that is not JSON or a port outside `outputs` goes to the `error` port with `{"error": "<reason>"}`. Answering `"port": "error"` does the same with your own data. Responses are read up to 1 MiB.
 
 ## Development
 

@@ -102,7 +102,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	e := engine.New(reg)
 
 	app := fiber.New()
-	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs()).Register(app)
+	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app)
 
 	status, _ := request(t, app, http.MethodPut, "/platform/event-definitions/"+employeeCreatedKey, `{
 		"name": "Employee Criado",
