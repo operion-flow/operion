@@ -575,6 +575,46 @@ func TestCreateWorkflowBelongsToTheCallerTenant(t *testing.T) {
 	assert.Equal(t, "globex", s.workflows.created[0].TenantID)
 }
 
+func TestCreateWorkflowVersionNeedsAGroupOfTheCallerTenant(t *testing.T) {
+	const (
+		acmeGroup    = "6f1c2d4e-8a7b-4c3d-9e2f-1a2b3c4d5e6f"
+		globexGroup  = "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d"
+		unknownGroup = "11111111-2222-4333-8444-555555555555"
+	)
+
+	tests := []struct {
+		name   string
+		group  string
+		status int
+	}{
+		{name: "own group", group: acmeGroup, status: http.StatusCreated},
+		{name: "group of another tenant", group: globexGroup, status: http.StatusNotFound},
+		{name: "unknown group", group: unknownGroup, status: http.StatusNotFound},
+		{name: "group is not a uuid", group: "wf", status: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer()
+			s.workflows.workflows[acmeGroup] = &models.Workflow{ID: acmeGroup, TenantID: acmeTenant}
+			s.workflows.workflows[globexGroup] = &models.Workflow{ID: globexGroup, TenantID: "globex"}
+
+			status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "workflow_group_id": "`+tt.group+`"}`)
+
+			require.Equal(t, tt.status, status)
+
+			if tt.status != http.StatusCreated {
+				assert.Empty(t, s.workflows.created)
+
+				return
+			}
+
+			require.Len(t, s.workflows.created, 1)
+			assert.Equal(t, acmeGroup, s.workflows.created[0].WorkflowGroupID)
+		})
+	}
+}
+
 func TestSaveAndGetNodeType(t *testing.T) {
 	s := newServer()
 
