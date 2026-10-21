@@ -73,6 +73,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--workflow` | Path to the workflow JSON (required) |
 | `--event` | Path to the event JSON passed to the trigger (required) |
 | `--trigger` | Trigger node ID, required when the workflow has more than one trigger |
+| `--node-types` | JSON file of remote node types keyed by id, for workflows that use them |
 
 `operion serve`
 
@@ -89,6 +90,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--schema-registry-url` | `SCHEMA_REGISTRY_URL` | | Confluent Schema Registry for `avro` and `protobuf` events; they are skipped when empty |
 | `--schema-registry-username` | `SCHEMA_REGISTRY_USERNAME` | | Schema Registry basic auth username |
 | `--schema-registry-password` | `SCHEMA_REGISTRY_PASSWORD` | | Schema Registry basic auth password |
+| `--node-types` | `NODE_TYPES_FILE` | | JSON file of remote node types keyed by id, registered on start |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -149,11 +151,11 @@ The platform operator registers the events tenants can build on with `PUT /platf
 
 A message that cannot be decoded, has no tenant, or whose schema is not in the registry is logged and skipped. Without `--schema-registry-url`, `avro` and `protobuf` events are skipped too. When the registry cannot be reached or answers with an error, the message is not committed and is read again.
 
-Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Every action has an `error` port; an error on an unconnected `error` port fails the execution.
+Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Each of them has an `error` port; an error on an unconnected `error` port fails the execution.
 
 To post to Slack, point an `httprequest` at the channel's incoming webhook with a body such as `{"text": "Welcome, {{.node_results.trigger.body.name}}"}`.
 
-Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and `wait_until` holds it until `until`, a template that renders an RFC 3339 time. While a branch waits, its node result has status `waiting` and the execution stays `running`; the worker continues the branch from a job due at that time. `operion run` does not wait and continues the branch right away.
+Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and `wait_until` holds it until `until`, a template that renders an RFC 3339 time. While a branch waits, its node result has status `waiting` and the execution stays `running`; the worker continues the branch from a job due at that time. `operion run` does not wait and continues the branch right away. Both have only a `success` port.
 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
