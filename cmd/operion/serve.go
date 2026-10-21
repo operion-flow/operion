@@ -25,6 +25,8 @@ import (
 	cli "github.com/urfave/cli/v3"
 )
 
+const readinessTimeout = time.Second
+
 func newServeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "serve",
@@ -141,7 +143,7 @@ func serve(ctx context.Context, options serveOptions) error {
 
 	app := fiber.New()
 	app.Get(healthcheck.DefaultLivenessEndpoint, healthcheck.NewHealthChecker())
-	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker())
+	app.Get(healthcheck.DefaultReadinessEndpoint, healthcheck.NewHealthChecker(healthcheck.Config{Probe: ready(ctx, store)}))
 	ingest.NewWebhook(store, jobs, logger).Register(app)
 	ingest.NewCallbacks(jobs).Register(app)
 	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e, store.EventDefinitions()), store.ExecutionContextRepository(), store.EventDefinitions(), jobs, store.RemoteNodeTypes()).Register(app, options.apiToken)
@@ -166,4 +168,13 @@ func serve(ctx context.Context, options serveOptions) error {
 	running.Wait()
 
 	return err
+}
+
+func ready(ctx context.Context, store *postgresql.Persistence) healthcheck.HealthChecker {
+	return func(fiber.Ctx) bool {
+		ping, cancel := context.WithTimeout(ctx, readinessTimeout)
+		defer cancel()
+
+		return store.HealthCheck(ping) == nil
+	}
 }

@@ -113,7 +113,8 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `PUT /platform/event-definitions/:key`, `GET /platform/event-definitions/:key` | Register and read an event definition (platform operator) |
 | `PUT /platform/node-types/:id` | Register or replace a remote node type |
 | `GET /platform/node-types/:id` | Get a remote node type |
-| `GET /livez`, `GET /readyz` | Health checks |
+| `GET /livez` | Liveness: 200 while the process serves HTTP |
+| `GET /readyz` | Readiness: 200 when Postgres answers a ping within a second, 503 otherwise |
 
 Errors are returned as `application/problem+json`.
 
