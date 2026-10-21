@@ -4,7 +4,7 @@ Operion runs event-driven workflows written in Go. A workflow is a graph of node
 
 ## Quick start
 
-Build the binary (Go 1.24 or later):
+Build the binary (Go 1.27 or later):
 
 ```bash
 go build -o operion ./cmd/operion
