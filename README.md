@@ -106,7 +106,7 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
 | `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
-| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. Returns 409 when the node is not waiting or was already resumed |
+| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. A remote node waiting for its callback needs the answer itself, `{"port": "<output>", "data": {...}}`, and returns 400 without a `port`. Returns 409 when the node is not waiting or was already resumed |
 | `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
 | `POST /callbacks/<execution>/<node>/<token>` | The `callback_url` a remote node answers through later; see [Remote nodes](#remote-nodes) |
 | `GET /catalog/events` | List the events tenants can build workflows on |

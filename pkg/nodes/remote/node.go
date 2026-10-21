@@ -218,6 +218,13 @@ func (n *Node) route(answer *response) map[string]models.NodeResult {
 	return map[string]models.NodeResult{answer.Port: {NodeID: n.id, Data: answer.Data, Status: string(status)}}
 }
 
+// AwaitsCallback reports whether result is a remote node waiting for its service to call back, which only an answer naming a port can resume.
+func AwaitsCallback(result models.NodeResult) bool {
+	stored, _ := result.Data[tokenKey].(string)
+
+	return stored != ""
+}
+
 // CallbackAllowed reports whether token is the callback token handed out with the call that left result waiting.
 func CallbackAllowed(result models.NodeResult, token string) bool {
 	stored, _ := result.Data[tokenKey].(string)

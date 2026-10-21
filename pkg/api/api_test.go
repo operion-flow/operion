@@ -355,6 +355,30 @@ func TestResumeNode(t *testing.T) {
 	}, s.resumer.resumed)
 }
 
+func TestResumingARemoteNodeTakesItsAnswer(t *testing.T) {
+	const target = "/executions/exec/nodes/benefit/resume"
+
+	s := newServer()
+	s.executions.executions["exec"].NodeResults = map[string]models.NodeResult{
+		"benefit": {Status: string(models.NodeStatusWaiting), Data: map[string]any{"callback_token_sha256": "5e88", "answer_by": "2026-10-22T12:00:00Z"}},
+	}
+
+	for _, body := range []string{"", `{}`, `{"data": {"benefit_id": "b-1"}}`} {
+		status, problem := s.do(t, http.MethodPost, target, body)
+		assert.Equal(t, http.StatusBadRequest, status, body)
+		assert.Contains(t, problem["detail"], `{"port": "<output>", "data": {...}}`, body)
+	}
+
+	assert.Empty(t, s.resumer.resumed)
+
+	status, _ := s.do(t, http.MethodPost, target, `{"port": "approved", "data": {"benefit_id": "b-1"}}`)
+	require.Equal(t, http.StatusAccepted, status)
+
+	assert.Equal(t, []resumed{
+		{executionID: "exec", nodeID: "benefit", data: map[string]any{"port": "approved", "data": map[string]any{"benefit_id": "b-1"}}},
+	}, s.resumer.resumed)
+}
+
 func TestResumeNodeErrors(t *testing.T) {
 	tests := []struct {
 		name   string
