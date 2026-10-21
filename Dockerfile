@@ -8,12 +8,9 @@ RUN go mod download
 COPY cmd ./cmd
 COPY pkg ./pkg
 
-RUN go build -ldflags="-s -w" -v -o /app/bin/operion /app/cmd/operion
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app/bin/operion /app/cmd/operion
 
-FROM debian:bookworm-slim
-RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /app/bin/operion /bin/operion
 
