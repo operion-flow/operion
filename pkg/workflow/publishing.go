@@ -68,6 +68,14 @@ func (s *PublishingService) PublishWorkflow(ctx context.Context, workflowID stri
 	return s.persistence.WorkflowRepository().GetByID(ctx, workflowID)
 }
 
+func (s *PublishingService) UnpublishWorkflow(ctx context.Context, workflowID string) (*models.Workflow, error) {
+	if err := s.persistence.WorkflowRepository().UnpublishWorkflow(ctx, workflowID); err != nil {
+		return nil, err
+	}
+
+	return s.persistence.WorkflowRepository().GetByID(ctx, workflowID)
+}
+
 // GetPublishedWorkflow returns the published version of a workflow group.
 func (s *PublishingService) GetPublishedWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) {
 	return s.persistence.WorkflowRepository().GetPublishedWorkflow(ctx, workflowGroupID)
@@ -128,7 +136,7 @@ func (s *PublishingService) validateForPublishing(workflow *models.Workflow) err
 	var hasTrigger bool
 
 	for _, node := range workflow.Nodes {
-		if node.Category == models.CategoryTypeTrigger && node.Enabled {
+		if node.Category == models.CategoryTypeTrigger {
 			hasTrigger = true
 
 			break
@@ -136,7 +144,7 @@ func (s *PublishingService) validateForPublishing(workflow *models.Workflow) err
 	}
 
 	if !hasTrigger {
-		return errors.New("workflow must have at least one enabled trigger node")
+		return errors.New("workflow must have at least one trigger node")
 	}
 
 	return nil

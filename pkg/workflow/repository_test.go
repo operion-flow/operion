@@ -33,7 +33,6 @@ func TestRepository_Create(t *testing.T) {
 				Config: map[string]any{
 					"message": "test",
 				},
-				Enabled: true,
 			},
 		},
 		Connections: []*models.Connection{},

@@ -122,7 +122,6 @@ func TestWorkflowNode_Validation_ValidNode(t *testing.T) {
 		Config:    map[string]any{"url": "https://api.example.com", "method": "GET"},
 		PositionX: 100,
 		PositionY: 200,
-		Enabled:   true,
 	}
 
 	validate := validator.New()
@@ -211,7 +210,6 @@ func TestWorkflowNode_JSONSerialization(t *testing.T) {
 		Retry:     &RetryPolicy{Attempts: 3, Initial: "1s", Max: "1m"},
 		PositionX: 250,
 		PositionY: 150,
-		Enabled:   true,
 	}
 
 	// Serialize to JSON
@@ -235,7 +233,6 @@ func TestWorkflowNode_JSONSerialization(t *testing.T) {
 	assert.Equal(t, original.Name, deserialized.Name)
 	assert.Equal(t, original.PositionX, deserialized.PositionX)
 	assert.Equal(t, original.PositionY, deserialized.PositionY)
-	assert.Equal(t, original.Enabled, deserialized.Enabled)
 	assert.Equal(t, original.Retry, deserialized.Retry)
 
 	// Verify config deep equality

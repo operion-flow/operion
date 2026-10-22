@@ -72,6 +72,14 @@ type fakePublisher struct {
 	err error
 }
 
+func (f fakePublisher) UnpublishWorkflow(_ context.Context, id string) (*models.Workflow, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return &models.Workflow{ID: id, Status: models.WorkflowStatusUnpublished}, nil
+}
+
 func (f fakePublisher) PublishWorkflow(_ context.Context, id string) (*models.Workflow, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -326,6 +334,45 @@ func TestPublishWorkflow(t *testing.T) {
 	}
 }
 
+func TestUnpublishWorkflow(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "unpublished", status: http.StatusOK},
+		{name: "not published", err: fmt.Errorf("%w: wf", persistence.ErrWorkflowNotPublished), status: http.StatusConflict},
+		{name: "store error", err: errStore, status: http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer()
+			s.publisher = fakePublisher{err: tt.err}
+
+			status, body := s.do(t, http.MethodPost, unpublishRoute, "")
+
+			assert.Equal(t, tt.status, status)
+
+			if tt.err == nil {
+				assert.Equal(t, string(models.WorkflowStatusUnpublished), body["status"])
+			} else {
+				assert.Equal(t, tt.err.Error(), body["detail"])
+			}
+		})
+	}
+}
+
+func TestCreateWorkflowIgnoresTheOldEnabledKey(t *testing.T) {
+	s := newServer()
+
+	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "nodes": [{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": false, "config": {"webhook_path": "/hire"}}]}`)
+
+	require.Equal(t, http.StatusCreated, status)
+	require.Len(t, s.workflows.created, 1)
+	assert.Len(t, s.workflows.created[0].Nodes, 1)
+}
+
 func TestGetExecution(t *testing.T) {
 	s := newServer()
 
@@ -338,6 +385,8 @@ func TestGetExecution(t *testing.T) {
 }
 
 const resumeHold = "/executions/exec/nodes/hold/resume"
+
+const unpublishRoute = "/workflows/wf/unpublish"
 
 func TestResumeNode(t *testing.T) {
 	s := newServer()
@@ -552,6 +601,7 @@ func TestTenantRoutesRequireTheTenantHeader(t *testing.T) {
 		{http.MethodPost, "/workflows"},
 		{http.MethodGet, "/workflows/wf"},
 		{http.MethodPost, "/workflows/wf/publish"},
+		{http.MethodPost, unpublishRoute},
 		{http.MethodGet, "/workflows/wf/executions"},
 		{http.MethodGet, "/executions/exec"},
 		{http.MethodPost, resumeHold},
@@ -573,6 +623,7 @@ func TestOtherTenantsSeeNothing(t *testing.T) {
 	for _, request := range [][2]string{
 		{http.MethodGet, "/workflows/wf"},
 		{http.MethodPost, "/workflows/wf/publish"},
+		{http.MethodPost, unpublishRoute},
 		{http.MethodGet, "/workflows/wf/executions"},
 		{http.MethodGet, "/executions/exec"},
 		{http.MethodPost, resumeHold},
@@ -708,6 +759,7 @@ var allRoutes = [][2]string{
 	{http.MethodPost, "/workflows"},
 	{http.MethodGet, "/workflows/wf"},
 	{http.MethodPost, "/workflows/wf/publish"},
+	{http.MethodPost, unpublishRoute},
 	{http.MethodGet, "/workflows/wf/executions"},
 	{http.MethodGet, "/executions/exec"},
 	{http.MethodPost, resumeHold},

@@ -18,7 +18,7 @@ func createTestWorkflow(t *testing.T) *models.Workflow {
 		Name:        "Execution Test Workflow",
 		Description: "A workflow for testing executions",
 		Nodes: []*models.WorkflowNode{
-			{ID: "action1", Type: logNodeType, Category: models.CategoryTypeAction, Name: "action1", Config: map[string]any{messageKey: "execution test"}, Enabled: true},
+			{ID: "action1", Type: logNodeType, Category: models.CategoryTypeAction, Name: "action1", Config: map[string]any{messageKey: "execution test"}},
 		},
 		Status: models.WorkflowStatusPublished,
 	}

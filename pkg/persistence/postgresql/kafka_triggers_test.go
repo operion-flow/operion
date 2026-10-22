@@ -22,7 +22,7 @@ func saveKafkaWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persiste
 		Status:          status,
 		WorkflowGroupID: id,
 		Nodes: []*models.WorkflowNode{
-			{ID: triggerNodeID, Name: triggerNodeID, Type: models.NodeTypeTriggerKafka, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"topic": topic}},
+			{ID: triggerNodeID, Name: triggerNodeID, Type: models.NodeTypeTriggerKafka, Category: models.CategoryTypeTrigger, Config: map[string]any{"topic": topic}},
 		},
 	}))
 

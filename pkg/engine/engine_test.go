@@ -62,7 +62,7 @@ func newEngine(stubs map[string]protocol.Node) *engine.Engine {
 }
 
 func node(id, nodeType string, config map[string]any) *models.WorkflowNode {
-	return &models.WorkflowNode{ID: id, Name: id, Type: nodeType, Config: config, Enabled: true}
+	return &models.WorkflowNode{ID: id, Name: id, Type: nodeType, Config: config}
 }
 
 func trigger() *models.WorkflowNode {

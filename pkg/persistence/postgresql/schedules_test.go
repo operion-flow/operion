@@ -14,7 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const scheduleNodeID = "schedule"
+const (
+	scheduleNodeID = "schedule"
+	dailyAtNine    = "0 9 * * *"
+)
 
 func saveSchedulerWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persistence, status models.WorkflowStatus) string {
 	t.Helper()
@@ -27,7 +30,7 @@ func saveSchedulerWorkflow(ctx context.Context, t *testing.T, p *postgresql.Pers
 		Status:          status,
 		WorkflowGroupID: id,
 		Nodes: []*models.WorkflowNode{
-			{ID: scheduleNodeID, Name: scheduleNodeID, Type: models.NodeTypeTriggerScheduler, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"cron_expression": "0 9 * * *", "timezone": "America/Sao_Paulo"}},
+			{ID: scheduleNodeID, Name: scheduleNodeID, Type: models.NodeTypeTriggerScheduler, Category: models.CategoryTypeTrigger, Config: map[string]any{"cron_expression": dailyAtNine, "timezone": "America/Sao_Paulo"}},
 		},
 	}))
 
@@ -95,7 +98,7 @@ func TestSchedulesSyncCreatesRowsForPublishedSchedulerTriggers(t *testing.T) {
 	}))
 
 	require.Len(t, seen, 1)
-	assert.Equal(t, models.Schedule{WorkflowID: published, NodeID: scheduleNodeID, Expression: "0 9 * * *", Timezone: "America/Sao_Paulo"}, seen[0])
+	assert.Equal(t, models.Schedule{WorkflowID: published, NodeID: scheduleNodeID, Expression: dailyAtNine, Timezone: "America/Sao_Paulo"}, seen[0])
 
 	at, ok := nextRunAt(ctx, t, databaseURL, published)
 	require.True(t, ok)
@@ -136,7 +139,7 @@ func TestSchedulesProcessDueStartsExecutionAndMovesSchedule(t *testing.T) {
 
 	processed, err := p.Schedules().ProcessDue(ctx, func(_ context.Context, schedule models.Schedule) (models.Firing, error) {
 		assert.Equal(t, workflowID, schedule.WorkflowID)
-		assert.Equal(t, "0 9 * * *", schedule.Expression)
+		assert.Equal(t, dailyAtNine, schedule.Expression)
 		assert.True(t, due.Equal(schedule.NextRunAt))
 
 		started = firing(schedule, later)

@@ -14,6 +14,7 @@ var (
 	ErrNodeNotWaiting          = errors.New("node is not waiting")
 	ErrResumeRefused           = errors.New("resume refused")
 	ErrRemoteNodeTypeNotFound  = errors.New("remote node type not found")
+	ErrWorkflowNotPublished    = errors.New("workflow is not published")
 )
 
 type Persistence interface {
@@ -40,7 +41,8 @@ type WorkflowRepository interface {
 	GetCurrentWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error) // draft or published
 	GetDraftWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error)   // draft only
 	GetPublishedWorkflow(ctx context.Context, workflowGroupID string) (*models.Workflow, error)
-	PublishWorkflow(ctx context.Context, workflowID string) error                                   // NEW: handle publish logic in repo
+	PublishWorkflow(ctx context.Context, workflowID string) error // NEW: handle publish logic in repo
+	UnpublishWorkflow(ctx context.Context, workflowID string) error
 	CreateDraftFromPublished(ctx context.Context, workflowGroupID string) (*models.Workflow, error) // NEW: create draft copy
 }
 
