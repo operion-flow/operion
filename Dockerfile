@@ -1,4 +1,7 @@
-FROM golang:1.27 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27 AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -8,7 +11,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY pkg ./pkg
 
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app/bin/operion /app/cmd/operion
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /app/bin/operion /app/cmd/operion
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
