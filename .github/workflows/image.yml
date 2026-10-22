@@ -36,6 +36,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -46,4 +47,5 @@ jobs:
         with:
           context: .
           file: examples/benefits/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: false
