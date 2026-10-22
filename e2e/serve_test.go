@@ -346,6 +346,33 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 	}
 }
 
+func TestFinishedExecutionsAreDeletedAfterTheRetention(t *testing.T) {
+	base := startServe(t, "--execution-retention", "1s")
+
+	definition := workflow(
+		[]map[string]any{webhookTrigger(), node("done", "log", "action", map[string]any{"message": "hello"})},
+		connection("trigger:success", "done:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{"employee": "Ana"})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	executionID := accepted["executions"].([]any)[0].(string)
+	require.Equal(t, "completed", finished(t, base, executionID)[statusKey])
+
+	require.Eventually(t, func() bool {
+		code, _, err := fetch(t.Context(), http.MethodGet, base+"/executions/"+executionID, nil)
+
+		return err == nil && code == http.StatusNotFound
+	}, 15*time.Second, 200*time.Millisecond)
+}
+
 func TestPublishRejectsAnUndeclaredPort(t *testing.T) {
 	base := startServe(t)
 
