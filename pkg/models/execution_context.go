@@ -26,4 +26,5 @@ type ExecutionContext struct {
 	ErrorMessage string                `json:"error_message,omitempty"`
 	CreatedAt    time.Time             `json:"created_at"`
 	CompletedAt  *time.Time            `json:"completed_at,omitempty"`
+	Secrets      map[string]string     `json:"-"`
 }

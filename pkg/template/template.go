@@ -4,6 +4,7 @@ package template
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/dukex/operion/pkg/models"
 )
+
+var ErrSecretNotFound = errors.New("secret not found")
 
 func RenderWithContext(input string, executionCtx *models.ExecutionContext) (any, error) {
 	// Flatten node results for easier template access
@@ -31,14 +34,20 @@ func RenderWithContext(input string, executionCtx *models.ExecutionContext) (any
 		},
 	}
 
-	return Render(input, enhancedData)
+	return render(input, enhancedData, executionCtx.Secrets)
 }
 
-// Parse parses the input string as a template and returns the parsed template.
-func Parse(input string) (*template.Template, error) {
+func parse(input string, secrets map[string]string) (*template.Template, error) {
 	tmpl, err := template.
 		New("transform").
 		Funcs(template.FuncMap{
+			"secret": func(name string) (string, error) {
+				if value, ok := secrets[name]; ok {
+					return value, nil
+				}
+
+				return "", fmt.Errorf("%w: %s", ErrSecretNotFound, name)
+			},
 			"now": func() string {
 				return time.Now().UTC().Format(time.RFC3339)
 			},
@@ -64,7 +73,11 @@ func Parse(input string) (*template.Template, error) {
 
 // Render renders the input string as a template with the provided data.
 func Render(templateStr string, data any) (any, error) {
-	tmpl, err := Parse(templateStr)
+	return render(templateStr, data, nil)
+}
+
+func render(templateStr string, data any, secrets map[string]string) (any, error) {
+	tmpl, err := parse(templateStr, secrets)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template '%s': %w", templateStr, err)
 	}

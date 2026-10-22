@@ -11,7 +11,7 @@ cd examples/benefits
 docker compose up --build
 ```
 
-`compose.yaml` builds Operion and this node, and `serve` registers the node type from `node-types.json` at start. Use your own secret in both files.
+`compose.yaml` builds Operion and this node, and `serve` registers the node type from `node-types.json` at start. Use your own secret in both files, and your own `OPERION_SECRETS_KEY` from `openssl rand -base64 32` instead of the development one.
 
 ```bash
 token='Authorization: Bearer dev-token'

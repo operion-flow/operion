@@ -17,7 +17,8 @@ Operion is a workflow engine in Go. A workflow is a graph of nodes connected by 
 - `pkg/workflow`: workflow repository and publishing; publishing calls `Engine.Validate`.
 - `pkg/persistence/postgresql`: Postgres storage. Migrations are the versioned map in `migration.go`; add a new version for every schema change.
 - `pkg/nodes`: built-in nodes. `pkg/registry/nodes.go` registers them at compile time; `pkg/protocol/node.go` is the node contract.
-- `pkg/template`: Go templates in node configs. A node reads earlier results as `{{.node_results.<node_id>.<field>}}`, the event as `{{.trigger_data...}}` and workflow variables as `{{.variables...}}`.
+- `pkg/template`: Go templates in node configs. A node reads earlier results as `{{.node_results.<node_id>.<field>}}`, the event as `{{.trigger_data...}}`, workflow variables as `{{.variables...}}` and the tenant's secrets as `{{secret "name"}}`.
+- `pkg/secrets`: the AES-256-GCM cipher for tenant secrets (key from `--secrets-key`, never stored) and the mask the engine applies to node results before they are stored.
 - `pkg/models`: shared types.
 
 ## Commands

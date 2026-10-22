@@ -18,6 +18,7 @@ services:
     environment:
       DATABASE_URL: postgres://operion:operion@postgres:5432/operion?sslmode=disable
       OPERION_API_TOKEN: dev-token
+      OPERION_SECRETS_KEY: ZGV2LW9ubHktc2VjcmV0cy1rZXktb2YtMzItYnl0ZXM=
       OPERION_PUBLIC_URL: http://operion:9091
     volumes:
       - ./node-types.json:/etc/operion/node-types.json:ro

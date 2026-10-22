@@ -16,6 +16,7 @@ import (
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/scheduler"
+	"github.com/dukex/operion/pkg/secrets"
 	"github.com/dukex/operion/pkg/tracer"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/dukex/operion/pkg/workflow"
@@ -35,6 +36,7 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "database-url", Usage: "PostgreSQL connection URL", Required: true, Sources: cli.EnvVars("DATABASE_URL")},
 			&cli.IntFlag{Name: "port", Usage: "HTTP port", Value: 9091, Sources: cli.EnvVars("PORT")},
 			&cli.StringFlag{Name: "api-token", Usage: "Bearer token every API route requires; webhooks and health checks stay open", Required: true, Sources: cli.EnvVars("OPERION_API_TOKEN")},
+			&cli.StringFlag{Name: "secrets-key", Usage: "Base64 of the 32-byte key that encrypts tenant secrets, such as the output of openssl rand -base64 32", Required: true, Sources: cli.EnvVars("OPERION_SECRETS_KEY")},
 			&cli.StringFlag{Name: "public-url", Usage: "Base URL remote nodes call back to, such as http://operion:9091; without it a remote node that answers 202 fails", Sources: cli.EnvVars("OPERION_PUBLIC_URL")},
 			&cli.DurationFlag{Name: "poll-interval", Usage: "How long the background loops wait when nothing is due", Value: time.Second},
 			&cli.StringFlag{Name: "log-level", Usage: "debug, info, warn or error", Value: "info", Sources: cli.EnvVars("LOG_LEVEL")},
@@ -50,6 +52,7 @@ func newServeCommand() *cli.Command {
 				databaseURL:  command.String("database-url"),
 				port:         command.Int("port"),
 				apiToken:     command.String("api-token"),
+				secretsKey:   command.String("secrets-key"),
 				publicURL:    command.String("public-url"),
 				pollInterval: command.Duration("poll-interval"),
 				logLevel:     command.String("log-level"),
@@ -70,6 +73,7 @@ type serveOptions struct {
 	databaseURL    string
 	port           int
 	apiToken       string
+	secretsKey     string
 	publicURL      string
 	pollInterval   time.Duration
 	logLevel       string
@@ -101,6 +105,11 @@ func serve(ctx context.Context, options serveOptions) error {
 		return err
 	}
 
+	cipher, err := secrets.NewCipher(options.secretsKey)
+	if err != nil {
+		return err
+	}
+
 	store, err := postgresql.NewPersistence(ctx, logger, options.databaseURL)
 	if err != nil {
 		return err
@@ -119,7 +128,11 @@ func serve(ctx context.Context, options serveOptions) error {
 	reg.UseRemoteTypes(store.RemoteNodeTypes())
 	reg.UseCallbackURL(options.publicURL)
 
+	tenantSecrets := store.Secrets(cipher)
+
 	e := engine.New(reg)
+	e.UseSecrets(tenantSecrets)
+
 	jobs := store.Jobs()
 
 	loops := []func(context.Context) error{
@@ -147,6 +160,7 @@ func serve(ctx context.Context, options serveOptions) error {
 	ingest.NewWebhook(store, jobs, logger).Register(app)
 	ingest.NewCallbacks(jobs).Register(app)
 	api.New(workflow.NewRepository(store), workflow.NewPublishingService(store, e, store.EventDefinitions()), store.ExecutionContextRepository(), store.EventDefinitions(), jobs, store.RemoteNodeTypes()).Register(app, options.apiToken)
+	api.NewSecrets(tenantSecrets).Register(app, options.apiToken)
 
 	var running sync.WaitGroup
 

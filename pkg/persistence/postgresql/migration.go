@@ -170,5 +170,14 @@ func migrations() map[int]string {
 		9: `
 			ALTER TABLE remote_node_types ADD COLUMN secret TEXT NOT NULL DEFAULT '';
 		`,
+		11: `
+			CREATE TABLE secrets (
+				tenant_id VARCHAR(255) NOT NULL,
+				name VARCHAR(64) NOT NULL,
+				ciphertext BYTEA NOT NULL,
+				updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+				PRIMARY KEY (tenant_id, name)
+			);
+		`,
 	}
 }

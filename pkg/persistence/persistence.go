@@ -14,6 +14,7 @@ var (
 	ErrNodeNotWaiting          = errors.New("node is not waiting")
 	ErrResumeRefused           = errors.New("resume refused")
 	ErrRemoteNodeTypeNotFound  = errors.New("remote node type not found")
+	ErrSecretNotFound          = errors.New("secret not found")
 )
 
 type Persistence interface {

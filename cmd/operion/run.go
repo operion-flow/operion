@@ -28,22 +28,48 @@ func newRunCommand() *cli.Command {
 			&cli.StringFlag{Name: "event", Usage: "Path to the event JSON passed to the trigger", Required: true},
 			&cli.StringFlag{Name: "trigger", Usage: "Trigger node ID, required when the workflow has more than one trigger"},
 			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, for workflows that use them"},
+			&cli.StringFlag{Name: "secrets", Usage: "JSON file of secret values by name, which templates read with {{secret \"name\"}}"},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			return runWorkflow(ctx, command.String("workflow"), command.String("event"), command.String("trigger"), command.String("node-types"), command.Root().Writer)
+			return runWorkflow(ctx, runFiles{
+				workflow:  command.String("workflow"),
+				event:     command.String("event"),
+				nodeTypes: command.String("node-types"),
+				secrets:   command.String("secrets"),
+			}, command.String("trigger"), command.Root().Writer)
 		},
 	}
 }
 
-func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID, nodeTypesPath string, out io.Writer) error {
+type runFiles struct {
+	workflow  string
+	event     string
+	nodeTypes string
+	secrets   string
+}
+
+type fileSecrets map[string]string
+
+func (f fileSecrets) Values(context.Context, string) (map[string]string, error) {
+	return f, nil
+}
+
+func runWorkflow(ctx context.Context, files runFiles, triggerID string, out io.Writer) error {
 	var workflow models.Workflow
-	if err := readJSON(workflowPath, &workflow); err != nil {
+	if err := readJSON(files.workflow, &workflow); err != nil {
 		return err
 	}
 
 	var event map[string]any
-	if err := readJSON(eventPath, &event); err != nil {
+	if err := readJSON(files.event, &event); err != nil {
 		return err
+	}
+
+	values := fileSecrets{}
+	if files.secrets != "" {
+		if err := readJSON(files.secrets, &values); err != nil {
+			return err
+		}
 	}
 
 	triggerID, err := pickTrigger(&workflow, triggerID)
@@ -51,7 +77,7 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID, nodeTy
 		return err
 	}
 
-	nodeTypes, err := readNodeTypes(nodeTypesPath)
+	nodeTypes, err := readNodeTypes(files.nodeTypes)
 	if err != nil {
 		return err
 	}
@@ -60,6 +86,7 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID, nodeTy
 	reg.RegisterDefaultNodes()
 	reg.UseRemoteTypes(nodeTypes)
 	e := engine.New(reg)
+	e.UseSecrets(values)
 
 	if err := e.Validate(ctx, &workflow); err != nil {
 		return fmt.Errorf("invalid workflow: %w", err)

@@ -68,6 +68,21 @@ func TestRunPrintsCompletedExecution(t *testing.T) {
 	assert.Equal(t, "hello Ana", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
 }
 
+func TestRunReadsSecretsFromAFileAndMasksThem(t *testing.T) {
+	workflow := writeFile(t, "workflow.json", greet(`Bearer {{secret \"crm_token\"}}`))
+	event := writeFile(t, "event.json", `{}`)
+	secretsFile := writeFile(t, "secrets.json", `{"crm_token": "s3cr3t-crm-token"}`)
+
+	execution, err := run(t, "--workflow", workflow, "--event", event, "--secrets", secretsFile)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer ***", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
+	assert.NotContains(t, execution, "secrets")
+
+	_, err = run(t, "--workflow", workflow, "--event", event)
+	require.ErrorIs(t, err, errExecutionFailed)
+	assert.Contains(t, err.Error(), "secret not found: crm_token")
+}
+
 func TestRunFailsWhenExecutionFails(t *testing.T) {
 	workflow := writeFile(t, "workflow.json", greet("{not json}"))
 	event := writeFile(t, "event.json", `{}`)
@@ -144,8 +159,8 @@ func TestRunStopsOnCancelledContextAndWriteErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	require.ErrorIs(t, runWorkflow(ctx, workflow, event, "", "", &bytes.Buffer{}), context.Canceled)
-	require.ErrorIs(t, runWorkflow(t.Context(), workflow, event, "", "", failingWriter{}), errWrite)
+	require.ErrorIs(t, runWorkflow(ctx, runFiles{workflow: workflow, event: event}, "", &bytes.Buffer{}), context.Canceled)
+	require.ErrorIs(t, runWorkflow(t.Context(), runFiles{workflow: workflow, event: event}, "", failingWriter{}), errWrite)
 }
 
 func TestRunSkipsWaitsAndFinishesTheExecution(t *testing.T) {

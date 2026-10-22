@@ -45,8 +45,11 @@ It prints the execution as JSON, with `"status": "completed"` and `"result": "he
 `operion serve` runs the API, the webhooks, the scheduler and the worker in one process. It applies its migrations on start.
 
 ```bash
+export OPERION_SECRETS_KEY="$(openssl rand -base64 32)"
 DATABASE_URL="postgres://localhost:5432/operion?sslmode=disable" OPERION_API_TOKEN=dev-token ./operion serve
 ```
+
+`OPERION_SECRETS_KEY` encrypts the tenants' [secrets](#secrets). Keep it: secrets saved under one key cannot be read with another.
 
 Create the workflow, publish it, call its webhook and read the execution:
 
@@ -74,6 +77,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--event` | Path to the event JSON passed to the trigger (required) |
 | `--trigger` | Trigger node ID, required when the workflow has more than one trigger |
 | `--node-types` | JSON file of remote node types keyed by id, for workflows that use them |
+| `--secrets` | JSON file of secret values by name, such as `{"crm_token": "..."}`, for workflows that use `{{secret "name"}}` |
 
 `operion serve`
 
@@ -82,6 +86,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--database-url` | `DATABASE_URL` | | PostgreSQL connection URL (required) |
 | `--port` | `PORT` | `9091` | HTTP port |
 | `--api-token` | `OPERION_API_TOKEN` | | Bearer token every API route requires (required) |
+| `--secrets-key` | `OPERION_SECRETS_KEY` | | Base64 of the 32-byte key that encrypts tenant secrets, such as `openssl rand -base64 32` (required) |
 | `--public-url` | `OPERION_PUBLIC_URL` | | Base URL remote nodes call back to, such as `http://operion:9091`; without it a remote node that answers 202 fails |
 | `--poll-interval` | | `1s` | How long the worker and the scheduler wait when nothing is due |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
@@ -98,7 +103,7 @@ Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORT
 
 Every route below except the webhooks needs `Authorization: Bearer <token>` with the token given to `serve`; without it the answer is a 401. The health checks `/livez` and `/readyz` are open too. The token belongs to a trusted backend, such as the platform's own backend for its users, and it can call every route, including `/platform/*`.
 
-Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` header. A request without it is a 400, and another tenant's workflow or execution is a 404. Operion trusts the header, so the backend holding the token decides which tenant a call acts for.
+Workflow, execution and secret routes belong to a tenant, sent in the `X-Tenant-Id` header. A request without it is a 400, and another tenant's workflow or execution is a 404. Operion trusts the header, so the backend holding the token decides which tenant a call acts for.
 
 | Method and path | Description |
 |---|---|
@@ -109,6 +114,9 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
 | `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. A remote node waiting for its callback needs the answer itself, `{"port": "<output>", "data": {...}}`, and returns 400 without a `port`. Returns 409 when the node is not waiting or was already resumed |
+| `PUT /secrets/:name` | Save a secret of the tenant from `{"value": "..."}`, replacing one with the same name; 204. The name is a lowercase letter followed by up to 63 lowercase letters, digits or underscores |
+| `GET /secrets` | List the tenant's secrets as `name` and `updated_at`; values are never returned |
+| `DELETE /secrets/:name` | Delete a secret; 204, or 404 when the tenant has no secret with that name |
 | `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
 | `POST /callbacks/<execution>/<node>/<token>` | The `callback_url` a remote node answers through later; see [Remote nodes](#remote-nodes) |
 | `GET /catalog/events` | List the events tenants can build workflows on |
@@ -161,6 +169,12 @@ Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
 Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`. Templates cannot read the server's environment variables.
+
+### Secrets
+
+Credentials such as an API token or a Slack webhook URL stay out of workflows. A tenant saves them through `PUT /secrets/:name`, and a node reads them with `{{secret "name"}}`, for example in an `httprequest` header `"Authorization": "Bearer {{secret \"crm_token\"}}"`. An execution only reads the secrets of its workflow's tenant, and a name the tenant does not have fails the node.
+
+Values are encrypted in Postgres with AES-256-GCM under `--secrets-key`, which stays outside the database, and the API never returns them. Before a node result or an error is stored, every secret value of 8 characters or more in it becomes `***`, so executions do not show them; shorter values are not masked. Masking happens when the result is recorded, so later nodes read `***` too: a node that needs the secret reads it with `{{secret}}` itself.
 
 ### Remote nodes
 

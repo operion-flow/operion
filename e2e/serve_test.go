@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,6 +46,8 @@ var (
 	adminURL  string
 	container *postgres.PostgresContainer
 )
+
+var secretsKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -167,7 +170,7 @@ func serveOn(t *testing.T, databaseURL string, flags ...string) string {
 	args := append([]string{"serve", "--port", port, "--poll-interval", "100ms", "--log-level", "warn"}, flags...)
 	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), binary, args...) //nolint:gosec // runs the binary this test just built
 
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL, "OPERION_API_TOKEN="+apiToken, "OPERION_PUBLIC_URL=http://127.0.0.1:"+port)
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+databaseURL, "OPERION_API_TOKEN="+apiToken, "OPERION_SECRETS_KEY="+secretsKey, "OPERION_PUBLIC_URL=http://127.0.0.1:"+port)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -540,4 +543,104 @@ func TestReadinessFollowsTheDatabase(t *testing.T) {
 
 	status, _ := call(t, http.MethodGet, base+"/livez", nil)
 	assert.Equal(t, http.StatusOK, status)
+}
+
+func TestWorkflowsReadTenantSecretsThatExecutionsNeverShow(t *testing.T) {
+	const token = "s3cr3t-crm-token"
+
+	authorization := make(chan string, 1)
+
+	crm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization <- r.Header.Get("Authorization")
+
+		w.Header().Set("Content-Type", jsonType)
+		_ = json.NewEncoder(w).Encode(map[string]string{"received": r.Header.Get("Authorization")})
+	}))
+	defer crm.Close()
+
+	base := startServe(t)
+
+	status, _ := call(t, http.MethodPut, base+"/secrets/crm_token", map[string]any{"value": token})
+	require.Equal(t, http.StatusNoContent, status)
+
+	definition := workflow(
+		[]map[string]any{
+			webhookTrigger(),
+			node("crm", "httprequest", "action", map[string]any{
+				"url":     crm.URL + "/employees",
+				"headers": map[string]any{"Authorization": `Bearer {{secret "crm_token"}}`},
+			}),
+		},
+		connection("trigger:success", "crm:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	select {
+	case got := <-authorization:
+		assert.Equal(t, "Bearer "+token, got)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the CRM was not called")
+	}
+
+	executionID := accepted["executions"].([]any)[0].(string)
+
+	var execution string
+
+	require.Eventually(t, func() bool {
+		status, body := rawGet(t, base+"/executions/"+executionID)
+		execution = body
+
+		return status == http.StatusOK && strings.Contains(body, `"completed"`)
+	}, 30*time.Second, 100*time.Millisecond)
+
+	assert.NotContains(t, execution, token)
+	assert.Contains(t, execution, `Bearer ***`)
+
+	status, listed := rawGet(t, base+"/secrets")
+	require.Equal(t, http.StatusOK, status)
+	assert.Contains(t, listed, `"crm_token"`)
+	assert.NotContains(t, listed, token)
+}
+
+func rawGet(t *testing.T, target string) (int, string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	require.NoError(t, err)
+
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("X-Tenant-Id", tenant)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return resp.StatusCode, string(body)
+}
+
+func TestServeNeedsAValidSecretsKey(t *testing.T) {
+	setup(t)
+
+	for _, key := range []string{"", "not-a-key"} {
+		cmd := exec.CommandContext(t.Context(), binary, "serve", "--port", strconv.Itoa(freePort(t))) //nolint:gosec
+
+		cmd.Env = append(os.Environ(), "DATABASE_URL=postgres://127.0.0.1:1/unused", "OPERION_API_TOKEN="+apiToken, "OPERION_SECRETS_KEY="+key)
+
+		output, err := cmd.CombinedOutput()
+
+		require.Error(t, err, key)
+		assert.Contains(t, string(output), "base64 encoding of 32 bytes", key)
+	}
 }

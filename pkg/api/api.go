@@ -383,7 +383,8 @@ func statusFor(err error) int {
 	case errors.Is(err, workflow.ErrWorkflowNotFound),
 		errors.Is(err, persistence.ErrExecutionNotFound),
 		errors.Is(err, persistence.ErrEventDefinitionNotFound),
-		errors.Is(err, persistence.ErrRemoteNodeTypeNotFound):
+		errors.Is(err, persistence.ErrRemoteNodeTypeNotFound),
+		errors.Is(err, persistence.ErrSecretNotFound):
 		return fiber.StatusNotFound
 	case errors.Is(err, workflow.ErrInvalidWorkflow):
 		return fiber.StatusUnprocessableEntity

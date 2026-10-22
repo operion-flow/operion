@@ -113,6 +113,20 @@ func TestRenderWithContextDoesNotExposeTheEnvironment(t *testing.T) {
 	assert.Equal(t, "<no value><no value>", rendered)
 }
 
+func TestSecretReadsTheExecutionSecrets(t *testing.T) {
+	execution := &models.ExecutionContext{Secrets: map[string]string{"crm_token": "s3cr3t"}}
+
+	rendered, err := RenderWithContext(`Bearer {{secret "crm_token"}}`, execution)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer s3cr3t", rendered)
+
+	_, err = RenderWithContext(`{{secret "missing"}}`, execution)
+	require.ErrorIs(t, err, ErrSecretNotFound)
+
+	_, err = Render(`{{secret "crm_token"}}`, map[string]any{})
+	require.ErrorIs(t, err, ErrSecretNotFound)
+}
+
 // Test for workflow variables integration.
 func TestRender_WorkflowVariables(t *testing.T) {
 	// Simulate complete execution context with variables
