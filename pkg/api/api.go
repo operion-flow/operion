@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	errTenantRequired = errors.New(tenantHeader + " header is required")
-	errUnauthorized   = errors.New("a valid bearer token is required")
+	errTenantRequired  = errors.New(tenantHeader + " header is required")
+	errAnswerNeedsPort = errors.New(`this node waits for its remote service to call back; resume it with the answer, {"port": "<output>", "data": {...}}`)
+	errUnauthorized    = errors.New("a valid bearer token is required")
 )
 
 type Workflows interface {
@@ -145,6 +146,12 @@ func (a *API) createWorkflow(c fiber.Ctx) error {
 		return problem(c, fiber.StatusBadRequest, err)
 	}
 
+	if wf.WorkflowGroupID != "" {
+		if _, err := a.ownedWorkflow(c, wf.WorkflowGroupID); err != nil {
+			return problem(c, statusFor(err), err)
+		}
+	}
+
 	created, err := a.workflows.Create(c.Context(), &wf)
 	if err != nil {
 		return problem(c, fiber.StatusInternalServerError, err)
@@ -243,6 +250,10 @@ func (a *API) resumeNode(c fiber.Ctx) error {
 	execution, err := a.ownedExecution(c)
 	if err != nil {
 		return problem(c, statusFor(err), err)
+	}
+
+	if port, _ := data["port"].(string); port == "" && remote.AwaitsCallback(execution.NodeResults[c.Params("node_id")]) {
+		return problem(c, fiber.StatusBadRequest, errAnswerNeedsPort)
 	}
 
 	if err := a.resumer.Resume(c.Context(), execution.ID, c.Params("node_id"), data); err != nil {
