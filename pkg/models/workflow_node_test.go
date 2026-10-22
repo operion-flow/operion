@@ -13,6 +13,16 @@ import (
 
 // Updated Workflow Model Tests (Node-based)
 
+const (
+	httpRequestType = "http_request"
+	methodKey       = "method"
+	nodeOneID       = "node-1"
+	apiCallName     = "API Call"
+	apiURL          = "https://api.example.com"
+	urlKey          = "url"
+	getMethod       = "GET"
+)
+
 func TestWorkflow_NodeBased_Validation_ValidWorkflow(t *testing.T) {
 	workflow := &Workflow{
 		ID:          "wf-123",
@@ -28,14 +38,12 @@ func TestWorkflow_NodeBased_Validation_ValidWorkflow(t *testing.T) {
 				Category: CategoryTypeAction,
 				Name:     "Validate Input",
 				Config:   map[string]any{"expression": "{{.trigger_data.email}} != ''"},
-				Enabled:  true,
 			},
 			{
-				ID:      "create-user",
-				Type:    "http_request",
-				Name:    "Create User",
-				Config:  map[string]any{"url": "https://api.example.com/users", "method": "POST"},
-				Enabled: true,
+				ID:     "create-user",
+				Type:   httpRequestType,
+				Name:   "Create User",
+				Config: map[string]any{urlKey: "https://api.example.com/users", methodKey: "POST"},
 			},
 		},
 		Connections: []*Connection{
@@ -172,11 +180,10 @@ func TestWorkflow_SimplifiedVersioning(t *testing.T) {
 		WorkflowGroupID: workflowGroupID,
 		Nodes: []*WorkflowNode{
 			{
-				ID:      "node-1",
-				Type:    "http_request",
-				Name:    "API Call",
-				Config:  map[string]any{"url": "https://api.example.com"},
-				Enabled: true,
+				ID:     nodeOneID,
+				Type:   httpRequestType,
+				Name:   apiCallName,
+				Config: map[string]any{urlKey: apiURL},
 			},
 		},
 		CreatedAt: time.Now().UTC(),
@@ -192,11 +199,10 @@ func TestWorkflow_SimplifiedVersioning(t *testing.T) {
 		WorkflowGroupID: workflowGroupID, // Same group as draft
 		Nodes: []*WorkflowNode{
 			{
-				ID:      "node-1",
-				Type:    "http_request",
-				Name:    "API Call",
-				Config:  map[string]any{"url": "https://api.example.com"},
-				Enabled: true,
+				ID:     nodeOneID,
+				Type:   httpRequestType,
+				Name:   apiCallName,
+				Config: map[string]any{urlKey: apiURL},
 			},
 		},
 		CreatedAt: time.Now().UTC().Add(-1 * time.Hour),
@@ -217,11 +223,10 @@ func TestWorkflow_SimplifiedVersioning(t *testing.T) {
 		WorkflowGroupID: workflowGroupID, // Same group
 		Nodes: []*WorkflowNode{
 			{
-				ID:      "node-1",
-				Type:    "http_request",
-				Name:    "API Call",
-				Config:  map[string]any{"url": "https://api.example.com"},
-				Enabled: true,
+				ID:     nodeOneID,
+				Type:   httpRequestType,
+				Name:   apiCallName,
+				Config: map[string]any{urlKey: apiURL},
 			},
 		},
 		CreatedAt: time.Now().UTC().Add(-2 * time.Hour),
@@ -273,7 +278,7 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 		Description: "A workflow demonstrating conditional branching and merging",
 		Status:      WorkflowStatusPublished,
 		Variables: map[string]any{
-			"api_base_url": "https://api.example.com",
+			"api_base_url": apiURL,
 			"timeout":      30,
 			"retry_count":  3,
 		},
@@ -285,12 +290,11 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 		Nodes: []*WorkflowNode{
 			{
 				ID:        "fetch-data",
-				Type:      "http_request",
+				Type:      httpRequestType,
 				Name:      "Fetch Data",
-				Config:    map[string]any{"url": "{{.variables.api_base_url}}/data", "method": "GET"},
+				Config:    map[string]any{urlKey: "{{.variables.api_base_url}}/data", methodKey: getMethod},
 				PositionX: 100,
 				PositionY: 100,
-				Enabled:   true,
 			},
 			{
 				ID:        "validate-data",
@@ -299,7 +303,6 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 				Config:    map[string]any{"expression": "{{.step_results.fetch_data.status_code}} == 200"},
 				PositionX: 300,
 				PositionY: 100,
-				Enabled:   true,
 			},
 			{
 				ID:        "process-data",
@@ -308,7 +311,6 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 				Config:    map[string]any{"expression": `{"processed": true, "data": {{.step_results.fetch_data.body}}}`},
 				PositionX: 500,
 				PositionY: 50,
-				Enabled:   true,
 			},
 			{
 				ID:        "handle-error",
@@ -317,7 +319,6 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 				Config:    map[string]any{"message": "Failed to fetch data: {{.step_results.fetch_data.error}}", "level": "error"},
 				PositionX: 500,
 				PositionY: 150,
-				Enabled:   true,
 			},
 		},
 		Connections: []*Connection{
@@ -394,11 +395,10 @@ func TestWorkflow_ComplexNodeGraph_JSONSerialization(t *testing.T) {
 
 	fetchNode := nodeMap["fetch-data"]
 	require.NotNil(t, fetchNode)
-	assert.Equal(t, "http_request", fetchNode.Type)
+	assert.Equal(t, httpRequestType, fetchNode.Type)
 	assert.Equal(t, "Fetch Data", fetchNode.Name)
 	assert.Equal(t, 100, fetchNode.PositionX)
 	assert.Equal(t, 100, fetchNode.PositionY)
-	assert.True(t, fetchNode.Enabled)
 
 	// Verify connections
 	require.Len(t, deserialized.Connections, 4)
@@ -428,8 +428,8 @@ func TestExecutionContext_NodeBased_Validation_ValidContext(t *testing.T) {
 		WorkflowID: "wf-published-456",
 		Status:     ExecutionStatusRunning,
 		NodeResults: map[string]NodeResult{
-			"node-1": {
-				NodeID:    "node-1",
+			nodeOneID: {
+				NodeID:    nodeOneID,
 				Status:    "success",
 				Data:      map[string]any{"response": "ok"},
 				Timestamp: time.Now().UTC(),
@@ -550,8 +550,8 @@ func TestExecutionContext_CompleteLifecycle_JSONSerialization(t *testing.T) {
 		},
 		TriggerData: map[string]any{
 			"webhook": map[string]any{
-				"url":    "https://api.example.com/webhook",
-				"method": "POST",
+				urlKey:    "https://api.example.com/webhook",
+				methodKey: "POST",
 				"headers": map[string]string{
 					"Content-Type":  "application/json",
 					"Authorization": "Bearer token-123",
@@ -559,7 +559,7 @@ func TestExecutionContext_CompleteLifecycle_JSONSerialization(t *testing.T) {
 			},
 		},
 		Variables: map[string]any{
-			"api_base_url": "https://api.example.com",
+			"api_base_url": apiURL,
 			"timeout":      30,
 			"retry_count":  3,
 			"debug_mode":   true,
@@ -613,8 +613,8 @@ func TestExecutionContext_CompleteLifecycle_JSONSerialization(t *testing.T) {
 
 	// Verify trigger data
 	webhookData := deserialized.TriggerData["webhook"].(map[string]any)
-	assert.Equal(t, "https://api.example.com/webhook", webhookData["url"])
-	assert.Equal(t, "POST", webhookData["method"])
+	assert.Equal(t, "https://api.example.com/webhook", webhookData[urlKey])
+	assert.Equal(t, "POST", webhookData[methodKey])
 
 	// Verify variables
 	assert.Equal(t, original.Variables["api_base_url"], deserialized.Variables["api_base_url"])

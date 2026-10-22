@@ -170,5 +170,8 @@ func migrations() map[int]string {
 		9: `
 			ALTER TABLE remote_node_types ADD COLUMN secret TEXT NOT NULL DEFAULT '';
 		`,
+		10: `
+			ALTER TABLE workflow_nodes DROP COLUMN enabled;
+		`,
 	}
 }

@@ -19,8 +19,8 @@ go build -o operion ./cmd/operion
   "name": "greet",
   "description": "Greets whoever calls the webhook",
   "nodes": [
-    {"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": true, "config": {"webhook_path": "/greet"}},
-    {"id": "greet", "name": "greet", "type": "transform", "category": "action", "enabled": true, "config": {"expression": "hello {{.node_results.trigger.body.name}}"}}
+    {"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/greet"}},
+    {"id": "greet", "name": "greet", "type": "transform", "category": "action", "config": {"expression": "hello {{.node_results.trigger.body.name}}"}}
   ],
   "connections": [{"id": "c1", "source_port": "trigger:success", "target_port": "greet:main"}]
 }
@@ -106,6 +106,7 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `GET /workflows` | List the tenant's workflows |
 | `GET /workflows/:id` | Get a workflow |
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
+| `POST /workflows/:id/unpublish` | Turn the published workflow off: its triggers stop and its schedules are dropped, while executions already running or waiting finish on it. 409 when it is not published |
 | `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
 | `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. A remote node waiting for its callback needs the answer itself, `{"port": "<output>", "data": {...}}`, and returns 400 without a `port`. Returns 409 when the node is not waiting or was already resumed |

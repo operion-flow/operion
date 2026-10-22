@@ -29,6 +29,7 @@ import (
 )
 
 const (
+	nameKey     = "name"
 	statusKey   = "status"
 	jsonType    = "application/json"
 	webhookPath = "/employees"
@@ -246,7 +247,7 @@ func call(t *testing.T, method, target string, body any) (int, map[string]any) {
 }
 
 func node(id, nodeType, category string, config map[string]any) map[string]any {
-	return map[string]any{"id": id, "name": id, "type": nodeType, "category": category, "enabled": true, "config": config}
+	return map[string]any{"id": id, nameKey: id, "type": nodeType, "category": category, "config": config}
 }
 
 func connection(source, target string) map[string]any {
@@ -254,7 +255,7 @@ func connection(source, target string) map[string]any {
 }
 
 func workflow(nodes []map[string]any, connections ...map[string]any) map[string]any {
-	return map[string]any{"name": "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
+	return map[string]any{nameKey: "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
 }
 
 func webhookTrigger() map[string]any {
@@ -393,7 +394,7 @@ func startAsyncBenefit(t *testing.T, base string, plugin http.HandlerFunc) strin
 	t.Cleanup(server.Close)
 
 	status, saved := call(t, http.MethodPut, base+"/platform/node-types/create_benefit", map[string]any{
-		"name": "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
+		nameKey: "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
 	})
 	require.Equal(t, http.StatusOK, status, saved)
 
@@ -484,7 +485,7 @@ func TestServeRegistersNodeTypesFromAFile(t *testing.T) {
 
 	status, nodeType := call(t, http.MethodGet, base+"/platform/node-types/create_benefit", nil)
 	require.Equal(t, http.StatusOK, status, nodeType)
-	assert.Equal(t, "Criar benefício", nodeType["name"])
+	assert.Equal(t, "Criar benefício", nodeType[nameKey])
 	assert.Equal(t, []any{approved, "error"}, nodeType["outputs"])
 }
 

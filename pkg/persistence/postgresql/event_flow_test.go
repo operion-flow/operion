@@ -54,7 +54,7 @@ func saveEventWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persiste
 		WorkflowGroupID: id,
 		TenantID:        tenant,
 		Nodes: []*models.WorkflowNode{
-			{ID: triggerNodeID, Name: triggerNodeID, Type: models.NodeTypeTriggerEvent, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"event": event}},
+			{ID: triggerNodeID, Name: triggerNodeID, Type: models.NodeTypeTriggerEvent, Category: models.CategoryTypeTrigger, Config: map[string]any{"event": event}},
 		},
 	}))
 
@@ -117,8 +117,8 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 		"name": "Employee Criado",
 		"description": "greets new employees",
 		"nodes": [
-			{"id": "trigger", "name": "trigger", "type": "trigger:event", "category": "trigger", "enabled": true, "config": {"event": "%s"}},
-			{"id": "greet", "name": "greet", "type": "log", "category": "action", "enabled": true, "config": {"message": "hello {{.node_results.trigger.payload.name}} at {{.node_results.trigger.tenant_id}}"}}
+			{"id": "trigger", "name": "trigger", "type": "trigger:event", "category": "trigger", "config": {"event": "%s"}},
+			{"id": "greet", "name": "greet", "type": "log", "category": "action", "config": {"message": "hello {{.node_results.trigger.payload.name}} at {{.node_results.trigger.tenant_id}}"}}
 		],
 		"connections": [{"id": "trigger-greet", "source_port": "trigger:success", "target_port": "greet:main"}]
 	}`

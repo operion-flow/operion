@@ -133,7 +133,6 @@ func TestNewPersistence_SaveAndRetrieveWorkflow(t *testing.T) {
 				SourceID:   &sourceID,
 				ProviderID: &[]string{"scheduler"}[0],
 				EventType:  &[]string{"schedule_due"}[0],
-				Enabled:    true,
 			},
 			{
 				ID:       "step1",
@@ -141,7 +140,6 @@ func TestNewPersistence_SaveAndRetrieveWorkflow(t *testing.T) {
 				Category: models.CategoryTypeAction,
 				Name:     "Log Message",
 				Config:   map[string]any{"message": "Hello World"},
-				Enabled:  true,
 			},
 		},
 		Connections: []*models.Connection{},
@@ -215,7 +213,6 @@ func TestNewPersistence_UpdateWorkflow(t *testing.T) {
 				SourceID:   &sourceID,
 				ProviderID: &[]string{"scheduler"}[0],
 				EventType:  &[]string{"schedule_due"}[0],
-				Enabled:    true,
 			},
 			{
 				ID:       "step1",
@@ -223,7 +220,6 @@ func TestNewPersistence_UpdateWorkflow(t *testing.T) {
 				Category: models.CategoryTypeAction,
 				Name:     "Log Message",
 				Config:   map[string]any{"message": "Hello World"},
-				Enabled:  true,
 			},
 		},
 		Connections: []*models.Connection{},
@@ -278,7 +274,6 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 					SourceID:   &sourceID3,
 					ProviderID: &[]string{"scheduler"}[0],
 					EventType:  &[]string{"schedule_due"}[0],
-					Enabled:    true,
 				},
 				{
 					ID:       "step1",
@@ -288,7 +283,6 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 					Config: map[string]any{
 						"message": "Hello 3",
 					},
-					Enabled: true,
 				},
 			},
 			Connections: []*models.Connection{},
@@ -308,7 +302,6 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 					SourceID:   &sourceID4,
 					ProviderID: &[]string{"scheduler"}[0],
 					EventType:  &[]string{"schedule_due"}[0],
-					Enabled:    true,
 				},
 				{
 					ID:       "step1",
@@ -318,7 +311,6 @@ func TestNewPersistence_ListWorkflows(t *testing.T) {
 					Config: map[string]any{
 						"message": "Hello 4",
 					},
-					Enabled: true,
 				},
 			},
 			Connections: []*models.Connection{},
@@ -378,7 +370,6 @@ func TestNewPersistence_DeleteWorkflow(t *testing.T) {
 				SourceID:   &sourceID,
 				ProviderID: &[]string{"scheduler"}[0],
 				EventType:  &[]string{"schedule_due"}[0],
-				Enabled:    true,
 			},
 			{
 				ID:       "step1",
@@ -388,7 +379,6 @@ func TestNewPersistence_DeleteWorkflow(t *testing.T) {
 				Config: map[string]any{
 					"message": "Hello Delete",
 				},
-				Enabled: true,
 			},
 		},
 		Connections: []*models.Connection{},
@@ -442,7 +432,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 				SourceID:   &schedulerSourceID,
 				ProviderID: &[]string{"scheduler"}[0],
 				EventType:  &[]string{"schedule_due"}[0],
-				Enabled:    true,
 			},
 			{
 				ID:       "webhook_trigger",
@@ -457,7 +446,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 				SourceID:   &webhookSourceID,
 				ProviderID: &[]string{"webhook"}[0],
 				EventType:  &[]string{"webhook_received"}[0],
-				Enabled:    true,
 			},
 			{
 				ID:       "fetch_data",
@@ -471,7 +459,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 						"Authorization": "Bearer token",
 					},
 				},
-				Enabled: true,
 			},
 			{
 				ID:       "transform_data",
@@ -482,7 +469,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 					"expression": "$.data",
 					"input":      "{{steps.fetch_data.body}}",
 				},
-				Enabled: true,
 			},
 			{
 				ID:       "log_result",
@@ -493,7 +479,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 					"message": "Processing completed: {{steps.transform_data.result}}",
 					"level":   "info",
 				},
-				Enabled: true,
 			},
 			{
 				ID:       "error_handler",
@@ -504,7 +489,6 @@ func TestNewPersistence_ComplexWorkflow(t *testing.T) {
 					"message": "Error occurred: {{steps.fetch_data.error}}",
 					"level":   "error",
 				},
-				Enabled: true,
 			},
 		},
 		Connections: []*models.Connection{
