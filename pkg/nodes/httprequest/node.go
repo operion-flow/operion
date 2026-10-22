@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -135,7 +136,7 @@ func (n *HTTPRequestNode) Execute(ctx models.ExecutionContext, inputs map[string
 
 	result, err := n.performRequest(urlStr, renderedBody, renderedHeaders)
 	if err != nil {
-		return n.createErrorResult(fmt.Sprintf("HTTP request failed: %v", err)), nil
+		return n.createErrorResult(requestFailure(err, n.config.URL)), nil
 	}
 
 	results[OutputPortSuccess] = models.NodeResult{
@@ -145,6 +146,14 @@ func (n *HTTPRequestNode) Execute(ctx models.ExecutionContext, inputs map[string
 	}
 
 	return results, nil
+}
+
+func requestFailure(err error, configuredURL string) string {
+	if urlErr, ok := errors.AsType[*neturl.Error](err); ok {
+		return fmt.Sprintf("HTTP request failed: %s %q: %v", urlErr.Op, configuredURL, urlErr.Err)
+	}
+
+	return fmt.Sprintf("HTTP request failed: %v", err)
 }
 
 func requestBody(rendered any) (string, error) {

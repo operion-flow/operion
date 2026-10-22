@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dukex/operion/pkg/template"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +67,24 @@ func TestRunPrintsCompletedExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "completed", execution["status"])
 	assert.Equal(t, "hello Ana", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
+}
+
+func TestRunReadsOnlyAllowedEnvironmentVariables(t *testing.T) {
+	t.Setenv("OPERION_TEST_GREETING", "Olá")
+	t.Cleanup(func() { require.NoError(t, template.AllowEnv(nil)) })
+
+	workflow := writeFile(t, "workflow.json", greet(`{{env \"OPERION_TEST_GREETING\"}} {{.node_results.trigger.body.name}}`))
+	event := writeFile(t, "event.json", `{"body": {"name": "Ana"}}`)
+
+	execution, err := run(t, "--workflow", workflow, "--event", event, "--allow-env", "OPERION_TEST_GREETING")
+	require.NoError(t, err)
+	assert.Equal(t, "Olá Ana", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
+
+	_, err = run(t, "--workflow", workflow, "--event", event)
+	require.ErrorIs(t, err, errExecutionFailed)
+
+	_, err = run(t, "--workflow", workflow, "--event", event, "--allow-env", "OPERION_TEST_NEVER_SET")
+	require.ErrorIs(t, err, template.ErrEnvNotSet)
 }
 
 func TestRunFailsWhenExecutionFails(t *testing.T) {

@@ -113,6 +113,33 @@ func TestRenderWithContextDoesNotExposeTheEnvironment(t *testing.T) {
 	assert.Equal(t, "<no value><no value>", rendered)
 }
 
+func TestEnvReadsOnlyTheAllowedVariables(t *testing.T) {
+	t.Setenv("OPERION_TEST_ALLOWED", "https://hooks.example/abc")
+	t.Setenv("OPERION_TEST_SECRET", "s3cr3t")
+	require.NoError(t, AllowEnv([]string{"OPERION_TEST_ALLOWED"}))
+	t.Cleanup(func() { require.NoError(t, AllowEnv(nil)) })
+
+	rendered, err := RenderWithContext(`{{env "OPERION_TEST_ALLOWED"}}`, &models.ExecutionContext{})
+	require.NoError(t, err)
+	assert.Equal(t, "https://hooks.example/abc", rendered)
+
+	_, err = RenderWithContext(`{{env "OPERION_TEST_SECRET"}}`, &models.ExecutionContext{})
+	require.ErrorIs(t, err, ErrEnvNotAllowed)
+}
+
+func TestEnvIsClosedUntilVariablesAreAllowed(t *testing.T) {
+	t.Setenv("OPERION_TEST_SECRET", "s3cr3t")
+
+	_, err := RenderWithContext(`{{env "OPERION_TEST_SECRET"}}`, &models.ExecutionContext{})
+	require.ErrorIs(t, err, ErrEnvNotAllowed)
+}
+
+func TestAllowEnvRejectsVariablesThatAreNotSet(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, AllowEnv(nil)) })
+
+	require.ErrorIs(t, AllowEnv([]string{"OPERION_TEST_NEVER_SET"}), ErrEnvNotSet)
+}
+
 // Test for workflow variables integration.
 func TestRender_WorkflowVariables(t *testing.T) {
 	// Simulate complete execution context with variables

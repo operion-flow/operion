@@ -541,3 +541,46 @@ func TestReadinessFollowsTheDatabase(t *testing.T) {
 	status, _ := call(t, http.MethodGet, base+"/livez", nil)
 	assert.Equal(t, http.StatusOK, status)
 }
+
+func TestServeLetsWorkflowsReadAllowedEnvironmentVariables(t *testing.T) {
+	authorization := make(chan string, 1)
+
+	crm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization <- r.Header.Get("Authorization")
+
+		w.Header().Set("Content-Type", jsonType)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer crm.Close()
+
+	t.Setenv("OPERION_E2E_CRM_TOKEN", "s3cr3t")
+
+	base := startServe(t, "--allow-env", "OPERION_E2E_CRM_TOKEN")
+
+	definition := workflow(
+		[]map[string]any{
+			webhookTrigger(),
+			node("crm", "httprequest", "action", map[string]any{
+				"url":     crm.URL + "/employees",
+				"headers": map[string]any{"Authorization": `Bearer {{env "OPERION_E2E_CRM_TOKEN"}}`},
+			}),
+		},
+		connection("trigger:success", "crm:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	select {
+	case got := <-authorization:
+		assert.Equal(t, "Bearer s3cr3t", got)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the CRM was not called")
+	}
+}

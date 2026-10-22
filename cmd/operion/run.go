@@ -14,6 +14,7 @@ import (
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
 	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/template"
 	cli "github.com/urfave/cli/v3"
 )
 
@@ -28,8 +29,13 @@ func newRunCommand() *cli.Command {
 			&cli.StringFlag{Name: "event", Usage: "Path to the event JSON passed to the trigger", Required: true},
 			&cli.StringFlag{Name: "trigger", Usage: "Trigger node ID, required when the workflow has more than one trigger"},
 			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, for workflows that use them"},
+			&cli.StringSliceFlag{Name: "allow-env", Usage: "Environment variables templates may read with {{env \"NAME\"}}"},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
+			if err := template.AllowEnv(command.StringSlice("allow-env")); err != nil {
+				return err
+			}
+
 			return runWorkflow(ctx, command.String("workflow"), command.String("event"), command.String("trigger"), command.String("node-types"), command.Root().Writer)
 		},
 	}

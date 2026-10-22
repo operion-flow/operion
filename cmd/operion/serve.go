@@ -16,6 +16,7 @@ import (
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/scheduler"
+	"github.com/dukex/operion/pkg/template"
 	"github.com/dukex/operion/pkg/tracer"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/dukex/operion/pkg/workflow"
@@ -44,6 +45,7 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "schema-registry-username", Usage: "Schema Registry basic auth username", Sources: cli.EnvVars("SCHEMA_REGISTRY_USERNAME")},
 			&cli.StringFlag{Name: "schema-registry-password", Usage: "Schema Registry basic auth password", Sources: cli.EnvVars("SCHEMA_REGISTRY_PASSWORD")},
 			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, registered on start", Sources: cli.EnvVars("NODE_TYPES_FILE")},
+			&cli.StringSliceFlag{Name: "allow-env", Usage: "Environment variables templates may read with {{env \"NAME\"}}", Sources: cli.EnvVars("OPERION_ALLOW_ENV")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return serve(ctx, serveOptions{
@@ -61,6 +63,7 @@ func newServeCommand() *cli.Command {
 					Password: command.String("schema-registry-password"),
 				},
 				nodeTypes: command.String("node-types"),
+				allowEnv:  command.StringSlice("allow-env"),
 			})
 		},
 	}
@@ -77,12 +80,17 @@ type serveOptions struct {
 	kafkaGroup     string
 	schemaRegistry ingest.SchemaRegistry
 	nodeTypes      string
+	allowEnv       []string
 }
 
 func serve(ctx context.Context, options serveOptions) error {
 	log.Setup(options.logLevel)
 
 	logger := log.WithModule("operion")
+
+	if err := template.AllowEnv(options.allowEnv); err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()

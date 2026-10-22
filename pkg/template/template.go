@@ -4,14 +4,52 @@ package template
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/template"
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
 )
+
+var (
+	ErrEnvNotAllowed = errors.New("environment variable is not in --allow-env")
+	ErrEnvNotSet     = errors.New("environment variable in --allow-env is not set")
+
+	allowedEnv atomic.Pointer[map[string]string]
+)
+
+// AllowEnv lets templates read the named environment variables with {{env "NAME"}}, using their values at the time of the call.
+func AllowEnv(names []string) error {
+	values := make(map[string]string, len(names))
+
+	for _, name := range names {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrEnvNotSet, name)
+		}
+
+		values[name] = value
+	}
+
+	allowedEnv.Store(&values)
+
+	return nil
+}
+
+func env(name string) (string, error) {
+	if values := allowedEnv.Load(); values != nil {
+		if value, ok := (*values)[name]; ok {
+			return value, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrEnvNotAllowed, name)
+}
 
 func RenderWithContext(input string, executionCtx *models.ExecutionContext) (any, error) {
 	// Flatten node results for easier template access
@@ -39,6 +77,7 @@ func Parse(input string) (*template.Template, error) {
 	tmpl, err := template.
 		New("transform").
 		Funcs(template.FuncMap{
+			"env": env,
 			"now": func() string {
 				return time.Now().UTC().Format(time.RFC3339)
 			},

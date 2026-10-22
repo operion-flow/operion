@@ -74,6 +74,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--event` | Path to the event JSON passed to the trigger (required) |
 | `--trigger` | Trigger node ID, required when the workflow has more than one trigger |
 | `--node-types` | JSON file of remote node types keyed by id, for workflows that use them |
+| `--allow-env` | Environment variables templates may read with `{{env "NAME"}}`, comma separated |
 
 `operion serve`
 
@@ -91,6 +92,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--schema-registry-username` | `SCHEMA_REGISTRY_USERNAME` | | Schema Registry basic auth username |
 | `--schema-registry-password` | `SCHEMA_REGISTRY_PASSWORD` | | Schema Registry basic auth password |
 | `--node-types` | `NODE_TYPES_FILE` | | JSON file of remote node types keyed by id, registered on start |
+| `--allow-env` | `OPERION_ALLOW_ENV` | | Environment variables templates may read with `{{env "NAME"}}`, comma separated; `serve` does not start when one is not set |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -160,7 +162,9 @@ Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and 
 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
-Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`. Templates cannot read the server's environment variables.
+Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`.
+
+Credentials stay out of workflows: start `serve` with `--allow-env CRM_TOKEN,SLACK_WEBHOOK_URL` and a node reads them with `{{env "CRM_TOKEN"}}`, for example in an `httprequest` header `"Authorization": "Bearer {{env \"CRM_TOKEN\"}}"`. Any other variable is an error, and a failed request reports the URL as written in the config, not as rendered. A value still ends up in the execution if a workflow puts it there, for example in a `transform` result or a `log` message.
 
 ### Remote nodes
 
