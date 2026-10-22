@@ -569,3 +569,82 @@ func TestReadinessFollowsTheDatabase(t *testing.T) {
 	status, _ := call(t, http.MethodGet, base+"/livez", nil)
 	assert.Equal(t, http.StatusOK, status)
 }
+
+func TestWorkflowsReadSecretsFromTheEnvironmentThatExecutionsNeverShow(t *testing.T) {
+	const token = "s3cr3t-crm-token"
+
+	authorization := make(chan string, 1)
+
+	crm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization <- r.Header.Get("Authorization")
+
+		w.Header().Set("Content-Type", jsonType)
+		_ = json.NewEncoder(w).Encode(map[string]string{"received": r.Header.Get("Authorization")})
+	}))
+	defer crm.Close()
+
+	t.Setenv("OPERION_SECRET_CRM_TOKEN", token)
+
+	base := startServe(t)
+
+	definition := workflow(
+		[]map[string]any{
+			webhookTrigger(),
+			node("crm", "httprequest", "action", map[string]any{
+				"url":     crm.URL + "/employees",
+				"headers": map[string]any{"Authorization": `Bearer {{secret "crm_token"}}`},
+			}),
+		},
+		connection("trigger:success", "crm:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	select {
+	case got := <-authorization:
+		assert.Equal(t, "Bearer "+token, got)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the CRM was not called")
+	}
+
+	executionID := accepted["executions"].([]any)[0].(string)
+
+	var execution string
+
+	require.Eventually(t, func() bool {
+		status, body := rawGet(t, base+"/executions/"+executionID)
+		execution = body
+
+		return status == http.StatusOK && strings.Contains(body, `"completed"`)
+	}, 30*time.Second, 100*time.Millisecond)
+
+	assert.NotContains(t, execution, token)
+	assert.Contains(t, execution, `Bearer ***`)
+}
+
+func rawGet(t *testing.T, target string) (int, string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	require.NoError(t, err)
+
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("X-Tenant-Id", tenant)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return resp.StatusCode, string(body)
+}

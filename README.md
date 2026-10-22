@@ -95,6 +95,8 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
+Secrets are environment variables named `OPERION_SECRET_<NAME>`, set by whoever runs Operion (a Kubernetes Secret, Vault Agent, the compose file). `serve` and `run` read them once at start. They belong to the installation, so the workflows of every tenant can read every one of them.
+
 ## HTTP API
 
 Every route below except the webhooks needs `Authorization: Bearer <token>` with the token given to `serve`; without it the answer is a 401. The health checks `/livez` and `/readyz` are open too. The token belongs to a trusted backend, such as the platform's own backend for its users, and it can call every route, including `/platform/*`.
@@ -162,7 +164,9 @@ Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and 
 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
-Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`. Templates cannot read the server's environment variables.
+Node configs are Go templates. A node reads earlier results with `{{.node_results.<node_id>.<field>}}`, the event with `{{.trigger_data...}}` and workflow variables with `{{.variables...}}`.
+
+A node reads a secret with `{{secret "crm_token"}}`, which is the value of `OPERION_SECRET_CRM_TOKEN`, for example in an `httprequest` header `"Authorization": "Bearer {{secret \"crm_token\"}}"`. A name that is not set fails the node. Templates read no other environment variable, so `DATABASE_URL` and `OPERION_API_TOKEN` stay out of reach. Every secret value of 8 characters or more is replaced with `***` in what Operion stores: node results, errors and the execution's error message. Shorter values are not masked.
 
 ### Remote nodes
 

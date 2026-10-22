@@ -68,6 +68,18 @@ func TestRunPrintsCompletedExecution(t *testing.T) {
 	assert.Equal(t, "hello Ana", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
 }
 
+func TestRunReadsSecretsFromTheEnvironmentAndMasksThem(t *testing.T) {
+	t.Setenv("OPERION_SECRET_GREETING_TOKEN", "s3cr3t-greeting")
+
+	workflow := writeFile(t, "workflow.json", greet(`token {{secret \"greeting_token\"}} for {{.node_results.trigger.body.name}}`))
+	event := writeFile(t, "event.json", `{"body": {"name": "Ana"}}`)
+
+	execution, err := run(t, "--workflow", workflow, "--event", event)
+
+	require.NoError(t, err)
+	assert.Equal(t, "token *** for Ana", execution["node_results"].(map[string]any)["greet"].(map[string]any)["data"].(map[string]any)["result"])
+}
+
 func TestRunFailsWhenExecutionFails(t *testing.T) {
 	workflow := writeFile(t, "workflow.json", greet("{not json}"))
 	event := writeFile(t, "event.json", `{}`)
