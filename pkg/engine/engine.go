@@ -10,6 +10,7 @@ import (
 
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/protocol"
+	"github.com/dukex/operion/pkg/secret"
 )
 
 const (
@@ -40,11 +41,16 @@ type Deferred struct {
 }
 
 type Engine struct {
-	nodes NodeCreator
+	nodes   NodeCreator
+	secrets map[string]string
 }
 
 func New(nodes NodeCreator) *Engine {
 	return &Engine{nodes: nodes}
+}
+
+func (e *Engine) UseSecrets(values map[string]string) {
+	e.secrets = values
 }
 
 func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *models.ExecutionContext, start Activation) ([]Deferred, error) {
@@ -57,6 +63,9 @@ func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *
 		execution.NodeResults = make(map[string]models.NodeResult)
 	}
 
+	execution.Secrets = e.secrets
+	mask := secret.NewMask(e.secrets)
+
 	for len(queue) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -65,9 +74,9 @@ func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *
 		current := queue[0]
 		queue = queue[1:]
 
-		next, later, err := e.step(ctx, g, execution, current)
+		next, later, err := e.step(ctx, g, execution, current, mask)
 		if err != nil {
-			finish(execution, models.ExecutionStatusFailed, err.Error())
+			finish(execution, models.ExecutionStatusFailed, mask.Text(err.Error()))
 
 			return nil, nil
 		}
@@ -83,7 +92,7 @@ func (e *Engine) Run(ctx context.Context, workflow *models.Workflow, execution *
 	return deferred, nil
 }
 
-func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionContext, current Activation) ([]Activation, []Deferred, error) {
+func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionContext, current Activation, mask *secret.Mask) ([]Activation, []Deferred, error) {
 	node, ok := g.nodes[current.NodeID]
 	if !ok {
 		return nil, nil, fmt.Errorf("node %q not found in workflow", current.NodeID)
@@ -111,10 +120,10 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 
 	var suspended *protocol.SuspendError
 	if errors.As(err, &suspended) {
-		return nil, hold(execution, node.ID, suspended.Data, suspended.Until, nil), nil
+		return nil, hold(execution, node.ID, mask.Data(suspended.Data), suspended.Until, nil), nil
 	}
 
-	if retry, ok := retryLater(execution, node, current, failure(outputs, err)); ok {
+	if retry, ok := retryLater(execution, node, current, mask.Text(failure(outputs, err))); ok {
 		return nil, []Deferred{retry}, nil
 	}
 
@@ -126,6 +135,8 @@ func (e *Engine) step(ctx context.Context, g graph, execution *models.ExecutionC
 
 	for _, port := range slices.Sorted(maps.Keys(outputs)) {
 		result := outputs[port]
+		result.Data = mask.Data(result.Data)
+		result.Error = mask.Text(result.Error)
 		result.NodeID = node.ID
 		result.Timestamp = time.Now().UTC()
 		execution.NodeResults[node.ID] = result

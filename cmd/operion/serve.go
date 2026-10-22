@@ -18,6 +18,7 @@ import (
 	"github.com/dukex/operion/pkg/registry"
 	"github.com/dukex/operion/pkg/retention"
 	"github.com/dukex/operion/pkg/scheduler"
+	"github.com/dukex/operion/pkg/secret"
 	"github.com/dukex/operion/pkg/tracer"
 	"github.com/dukex/operion/pkg/worker"
 	"github.com/dukex/operion/pkg/workflow"
@@ -131,6 +132,8 @@ func serve(ctx context.Context, options serveOptions) error {
 	reg.UseCallbackURL(options.publicURL)
 
 	e := engine.New(reg)
+	secretValues := secret.FromEnviron(os.Environ())
+	e.UseSecrets(secretValues)
 	jobs := store.Jobs()
 
 	loops := []func(context.Context) error{
@@ -175,7 +178,7 @@ func serve(ctx context.Context, options serveOptions) error {
 		}()
 	}
 
-	logger.InfoContext(ctx, "operion serving", "port", options.port, "kafka", len(options.kafkaBrokers) > 0)
+	logger.InfoContext(ctx, "operion serving", "port", options.port, "kafka", len(options.kafkaBrokers) > 0, "secrets", len(secretValues))
 
 	err = app.Listen(":"+strconv.Itoa(options.port), fiber.ListenConfig{GracefulContext: ctx, DisableStartupMessage: true})
 

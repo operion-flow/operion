@@ -14,6 +14,7 @@ import (
 	"github.com/dukex/operion/pkg/models"
 	"github.com/dukex/operion/pkg/nodes/remote"
 	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/secret"
 	cli "github.com/urfave/cli/v3"
 )
 
@@ -60,6 +61,7 @@ func runWorkflow(ctx context.Context, workflowPath, eventPath, triggerID, nodeTy
 	reg.RegisterDefaultNodes()
 	reg.UseRemoteTypes(nodeTypes)
 	e := engine.New(reg)
+	e.UseSecrets(secret.FromEnviron(os.Environ()))
 
 	if err := e.Validate(ctx, &workflow); err != nil {
 		return fmt.Errorf("invalid workflow: %w", err)
