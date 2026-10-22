@@ -14,47 +14,16 @@ const (
 
 // KafkaTriggerNode implements the Node interface for Kafka triggers.
 type KafkaTriggerNode struct {
-	id     string
-	config KafkaTriggerConfig
-}
-
-// KafkaTriggerConfig defines the configuration for Kafka trigger nodes.
-type KafkaTriggerConfig struct {
-	Topic         string   `json:"topic"`
-	ConsumerGroup string   `json:"consumer_group"`
-	Brokers       []string `json:"brokers"`
+	id string
 }
 
 // NewKafkaTriggerNode creates a new Kafka trigger node.
 func NewKafkaTriggerNode(id string, config map[string]any) (*KafkaTriggerNode, error) {
-	// Parse configuration
-	kafkaConfig := KafkaTriggerConfig{
-		Brokers: []string{},
-	}
-
-	// Parse topic (required)
-	if topic, ok := config["topic"].(string); ok {
-		kafkaConfig.Topic = topic
-	} else {
+	if _, ok := config["topic"].(string); !ok {
 		return nil, errors.New("topic is required")
 	}
 
-	if consumerGroup, ok := config["consumer_group"].(string); ok {
-		kafkaConfig.ConsumerGroup = consumerGroup
-	}
-
-	if brokers, ok := config["brokers"].([]any); ok {
-		for _, broker := range brokers {
-			if brokerStr, ok := broker.(string); ok {
-				kafkaConfig.Brokers = append(kafkaConfig.Brokers, brokerStr)
-			}
-		}
-	}
-
-	return &KafkaTriggerNode{
-		id:     id,
-		config: kafkaConfig,
-	}, nil
+	return &KafkaTriggerNode{id: id}, nil
 }
 
 // ID returns the node ID.
@@ -91,7 +60,6 @@ func (n *KafkaTriggerNode) Execute(ctx models.ExecutionContext, inputs map[strin
 			"message":   kafkaData["message_data"],
 			"headers":   kafkaData["headers"],
 			"timestamp": kafkaData["timestamp"],
-			"config":    n.config,
 		},
 		Status: string(models.NodeStatusSuccess),
 	}
@@ -160,7 +128,6 @@ func (n *KafkaTriggerNode) OutputPorts() []models.OutputPort {
 						"message":   map[string]any{"type": "string"},
 						"headers":   map[string]any{"type": "object"},
 						"timestamp": map[string]any{"type": "string", "format": "date-time"},
-						"config":    map[string]any{"type": "object"},
 					},
 				},
 			},

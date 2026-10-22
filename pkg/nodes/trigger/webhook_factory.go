@@ -44,42 +44,15 @@ func (f *WebhookTriggerNodeFactory) Schema() map[string]any {
 				"type":        "string",
 				"description": "The webhook endpoint path that will receive HTTP requests",
 				"examples": []string{
-					"/webhook/orders",
-					"/webhook/github-push",
-					"/webhook/user-signup",
-				},
-			},
-			"method": map[string]any{
-				"type":        "string",
-				"description": "HTTP method allowed for the webhook",
-				"default":     "POST",
-				"enum":        []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
-			},
-			"headers": map[string]any{
-				"type":        "object",
-				"description": "Expected HTTP headers for validation (optional)",
-				"examples": []map[string]any{
-					{"Authorization": "Bearer secret-token"},
-					{"X-GitHub-Event": "push", "Content-Type": "application/json"},
+					"/orders",
+					"/github-push",
+					"/user-signup",
 				},
 			},
 		},
 		schemaRequired: []string{"webhook_path"},
 		"examples": []map[string]any{
-			{
-				"webhook_path": "/webhook/orders",
-				"method":       "POST",
-				"headers": map[string]string{
-					"Content-Type": "application/json",
-				},
-			},
-			{
-				"webhook_path": "/webhook/github",
-				"method":       "POST",
-				"headers": map[string]string{
-					"X-GitHub-Event": "push",
-				},
-			},
+			{"webhook_path": "/orders"},
 		},
 	}
 }

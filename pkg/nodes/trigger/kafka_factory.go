@@ -51,41 +51,10 @@ func (f *KafkaTriggerNodeFactory) Schema() map[string]any {
 					"system-alerts",
 				},
 			},
-			"consumer_group": map[string]any{
-				"type":        "string",
-				"description": "Kafka consumer group for this trigger",
-				"examples": []string{
-					"operion-workflow-group",
-					"order-processing",
-					"notification-handlers",
-				},
-			},
-			"brokers": map[string]any{
-				"type":        "array",
-				"description": "List of Kafka broker addresses",
-				"items": map[string]any{
-					"type": "string",
-				},
-				"minItems": 1,
-				"examples": [][]string{
-					{"localhost:9092"},
-					{"broker1:9092", "broker2:9092", "broker3:9092"},
-					{"kafka.example.com:9092"},
-				},
-			},
 		},
 		schemaRequired: []string{"topic"},
 		"examples": []map[string]any{
-			{
-				"topic":          "user-events",
-				"consumer_group": "operion-workflow",
-				"brokers":        []string{"localhost:9092"},
-			},
-			{
-				"topic":          "order-notifications",
-				"consumer_group": "order-processing",
-				"brokers":        []string{"broker1:9092", "broker2:9092"},
-			},
+			{"topic": "user-events"},
 		},
 	}
 }
