@@ -43,8 +43,8 @@ func saveWebhookWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persis
 		TenantID:        acmeTenant,
 		Variables:       map[string]any{"team": "Vendas"},
 		Nodes: []*models.WorkflowNode{
-			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": path}},
-			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Enabled: true, Config: map[string]any{messageKey: "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}},
+			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Config: map[string]any{"webhook_path": path}},
+			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Config: map[string]any{messageKey: "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}},
 		},
 		Connections: []*models.Connection{{ID: "trigger-greet", SourcePort: "trigger:success", TargetPort: "greet:main"}},
 	}))
@@ -106,8 +106,8 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 		"description": "greets new employees",
 		"variables": {"team": "Vendas"},
 		"nodes": [
-			{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": true, "config": {"webhook_path": "/lifecycle"}},
-			{"id": "greet", "name": "greet", "type": "log", "category": "action", "enabled": true, "config": {"message": "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}}
+			{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/lifecycle"}},
+			{"id": "greet", "name": "greet", "type": "log", "category": "action", "config": {"message": "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}}
 		],
 		"connections": [{"id": "trigger-greet", "source_port": "%s", "target_port": "greet:main"}]
 	}`

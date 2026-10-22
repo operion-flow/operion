@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/dukex/operion/pkg/log"
 	"github.com/dukex/operion/pkg/persistence/postgresql"
 	"github.com/dukex/operion/pkg/registry"
+	"github.com/dukex/operion/pkg/retention"
 	"github.com/dukex/operion/pkg/scheduler"
 	"github.com/dukex/operion/pkg/secrets"
 	"github.com/dukex/operion/pkg/tracer"
@@ -27,6 +29,8 @@ import (
 )
 
 const readinessTimeout = time.Second
+
+var errNegativeRetention = errors.New("execution-retention cannot be negative")
 
 func newServeCommand() *cli.Command {
 	return &cli.Command{
@@ -46,6 +50,7 @@ func newServeCommand() *cli.Command {
 			&cli.StringFlag{Name: "schema-registry-username", Usage: "Schema Registry basic auth username", Sources: cli.EnvVars("SCHEMA_REGISTRY_USERNAME")},
 			&cli.StringFlag{Name: "schema-registry-password", Usage: "Schema Registry basic auth password", Sources: cli.EnvVars("SCHEMA_REGISTRY_PASSWORD")},
 			&cli.StringFlag{Name: "node-types", Usage: "JSON file of remote node types keyed by id, registered on start", Sources: cli.EnvVars("NODE_TYPES_FILE")},
+			&cli.DurationFlag{Name: "execution-retention", Usage: "How long to keep completed and failed executions, such as 720h; 0 keeps them forever", Sources: cli.EnvVars("EXECUTION_RETENTION")},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return serve(ctx, serveOptions{
@@ -63,27 +68,33 @@ func newServeCommand() *cli.Command {
 					Username: command.String("schema-registry-username"),
 					Password: command.String("schema-registry-password"),
 				},
-				nodeTypes: command.String("node-types"),
+				nodeTypes:          command.String("node-types"),
+				executionRetention: command.Duration("execution-retention"),
 			})
 		},
 	}
 }
 
 type serveOptions struct {
-	databaseURL    string
-	port           int
-	apiToken       string
-	secretsKey     string
-	publicURL      string
-	pollInterval   time.Duration
-	logLevel       string
-	kafkaBrokers   []string
-	kafkaGroup     string
-	schemaRegistry ingest.SchemaRegistry
-	nodeTypes      string
+	databaseURL        string
+	port               int
+	apiToken           string
+	secretsKey         string
+	publicURL          string
+	pollInterval       time.Duration
+	logLevel           string
+	kafkaBrokers       []string
+	kafkaGroup         string
+	schemaRegistry     ingest.SchemaRegistry
+	nodeTypes          string
+	executionRetention time.Duration
 }
 
 func serve(ctx context.Context, options serveOptions) error {
+	if options.executionRetention < 0 {
+		return errNegativeRetention
+	}
+
 	log.Setup(options.logLevel)
 
 	logger := log.WithModule("operion")
@@ -138,6 +149,10 @@ func serve(ctx context.Context, options serveOptions) error {
 	loops := []func(context.Context) error{
 		worker.New(jobs, store.WorkflowRepository(), e, logger, options.pollInterval).Run,
 		scheduler.New(store.Schedules(), logger, options.pollInterval).Run,
+	}
+
+	if options.executionRetention > 0 {
+		loops = append(loops, retention.New(store, logger, options.executionRetention).Run)
 	}
 
 	if len(options.kafkaBrokers) > 0 {

@@ -30,6 +30,7 @@ import (
 )
 
 const (
+	nameKey     = "name"
 	statusKey   = "status"
 	jsonType    = "application/json"
 	webhookPath = "/employees"
@@ -249,7 +250,7 @@ func call(t *testing.T, method, target string, body any) (int, map[string]any) {
 }
 
 func node(id, nodeType, category string, config map[string]any) map[string]any {
-	return map[string]any{"id": id, "name": id, "type": nodeType, "category": category, "enabled": true, "config": config}
+	return map[string]any{"id": id, nameKey: id, "type": nodeType, "category": category, "config": config}
 }
 
 func connection(source, target string) map[string]any {
@@ -257,7 +258,7 @@ func connection(source, target string) map[string]any {
 }
 
 func workflow(nodes []map[string]any, connections ...map[string]any) map[string]any {
-	return map[string]any{"name": "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
+	return map[string]any{nameKey: "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
 }
 
 func webhookTrigger() map[string]any {
@@ -348,6 +349,33 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 	}
 }
 
+func TestFinishedExecutionsAreDeletedAfterTheRetention(t *testing.T) {
+	base := startServe(t, "--execution-retention", "1s")
+
+	definition := workflow(
+		[]map[string]any{webhookTrigger(), node("done", "log", "action", map[string]any{"message": "hello"})},
+		connection("trigger:success", "done:main"),
+	)
+
+	status, created := call(t, http.MethodPost, base+"/workflows", definition)
+	require.Equal(t, http.StatusCreated, status, created)
+
+	status, published := call(t, http.MethodPost, base+"/workflows/"+created["id"].(string)+"/publish", nil)
+	require.Equal(t, http.StatusOK, status, published)
+
+	status, accepted := call(t, http.MethodPost, base+"/webhooks/"+tenant+webhookPath, map[string]any{"employee": "Ana"})
+	require.Equal(t, http.StatusAccepted, status, accepted)
+
+	executionID := accepted["executions"].([]any)[0].(string)
+	require.Equal(t, "completed", finished(t, base, executionID)[statusKey])
+
+	require.Eventually(t, func() bool {
+		code, _, err := fetch(t.Context(), http.MethodGet, base+"/executions/"+executionID, nil)
+
+		return err == nil && code == http.StatusNotFound
+	}, 15*time.Second, 200*time.Millisecond)
+}
+
 func TestPublishRejectsAnUndeclaredPort(t *testing.T) {
 	base := startServe(t)
 
@@ -396,7 +424,7 @@ func startAsyncBenefit(t *testing.T, base string, plugin http.HandlerFunc) strin
 	t.Cleanup(server.Close)
 
 	status, saved := call(t, http.MethodPut, base+"/platform/node-types/create_benefit", map[string]any{
-		"name": "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
+		nameKey: "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
 	})
 	require.Equal(t, http.StatusOK, status, saved)
 
@@ -487,7 +515,7 @@ func TestServeRegistersNodeTypesFromAFile(t *testing.T) {
 
 	status, nodeType := call(t, http.MethodGet, base+"/platform/node-types/create_benefit", nil)
 	require.Equal(t, http.StatusOK, status, nodeType)
-	assert.Equal(t, "Criar benefício", nodeType["name"])
+	assert.Equal(t, "Criar benefício", nodeType[nameKey])
 	assert.Equal(t, []any{approved, "error"}, nodeType["outputs"])
 }
 

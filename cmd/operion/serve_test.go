@@ -39,3 +39,14 @@ func TestServeFailsOnAnInvalidNodeTypesFile(t *testing.T) {
 
 	require.ErrorContains(t, err, `node type "create_benefit"`)
 }
+
+func TestServeRefusesANegativeExecutionRetention(t *testing.T) {
+	err := serve(t.Context(), serveOptions{
+		databaseURL:        "postgres://operion@127.0.0.1:1/operion?sslmode=disable&connect_timeout=1",
+		pollInterval:       time.Millisecond,
+		logLevel:           "error",
+		executionRetention: -time.Hour,
+	})
+
+	require.ErrorIs(t, err, errNegativeRetention)
+}

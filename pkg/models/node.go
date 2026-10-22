@@ -37,7 +37,6 @@ type WorkflowNode struct {
 	PositionX  int            `json:"position_x"`
 	PositionY  int            `json:"position_y"`
 	Name       string         `json:"name"                  validate:"required,min=1"`
-	Enabled    bool           `json:"enabled"`
 	SourceID   *string        `json:"source_id,omitempty"`   // For trigger nodes only
 	ProviderID *string        `json:"provider_id,omitempty"` // For trigger nodes only
 	EventType  *string        `json:"event_type,omitempty"`  // For trigger nodes only

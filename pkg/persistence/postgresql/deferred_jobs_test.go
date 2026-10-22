@@ -144,14 +144,14 @@ func startFlow(ctx context.Context, t *testing.T, p *postgresql.Persistence, ste
 		WorkflowGroupID: workflowID,
 		TenantID:        acmeTenant,
 		Nodes: []*models.WorkflowNode{
-			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Enabled: true, Config: map[string]any{"webhook_path": "/flow"}},
+			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Config: map[string]any{"webhook_path": "/flow"}},
 		},
 	}
 
 	previous := triggerNodeID
 
 	for _, step := range steps {
-		step.Name, step.Category, step.Enabled = step.ID, models.CategoryTypeAction, true
+		step.Name, step.Category = step.ID, models.CategoryTypeAction
 		wf.Nodes = append(wf.Nodes, step)
 		wf.Connections = append(wf.Connections, &models.Connection{ID: previous + "-" + step.ID, SourcePort: previous + ":success", TargetPort: step.ID + ":main"})
 		previous = step.ID

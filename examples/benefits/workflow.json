@@ -2,9 +2,9 @@
   "name": "Benefício na admissão",
   "description": "Grants the hiring benefit when an employee is created",
   "nodes": [
-    {"id": "trigger", "name": "Employee created", "type": "trigger:webhook", "category": "trigger", "enabled": true, "config": {"webhook_path": "/employees"}},
-    {"id": "benefit", "name": "Grant benefit", "type": "grant_benefit", "category": "action", "enabled": true, "config": {"amount": "{{.node_results.trigger.body.amount}}"}},
-    {"id": "done", "name": "Granted", "type": "log", "category": "action", "enabled": true, "config": {"message": "benefit {{.node_results.benefit.benefit_id}} granted"}}
+    {"id": "trigger", "name": "Employee created", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/employees"}},
+    {"id": "benefit", "name": "Grant benefit", "type": "grant_benefit", "category": "action", "config": {"amount": "{{.node_results.trigger.body.amount}}"}},
+    {"id": "done", "name": "Granted", "type": "log", "category": "action", "config": {"message": "benefit {{.node_results.benefit.benefit_id}} granted"}}
   ],
   "connections": [
     {"id": "trigger-benefit", "source_port": "trigger:success", "target_port": "benefit:main"},

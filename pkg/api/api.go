@@ -37,6 +37,7 @@ type Workflows interface {
 
 type Publisher interface {
 	PublishWorkflow(ctx context.Context, workflowID string) (*models.Workflow, error)
+	UnpublishWorkflow(ctx context.Context, workflowID string) (*models.Workflow, error)
 }
 
 type Executions interface {
@@ -88,6 +89,7 @@ func (a *API) Register(app *fiber.App, token string) {
 	app.Post("/workflows", private(a.createWorkflow))
 	app.Get("/workflows/:id", private(a.getWorkflow))
 	app.Post("/workflows/:id/publish", private(a.publishWorkflow))
+	app.Post("/workflows/:id/unpublish", private(a.unpublishWorkflow))
 	app.Get("/workflows/:id/executions", private(a.listExecutions))
 	app.Get("/executions/:id", private(a.getExecution))
 	app.Post("/executions/:id/nodes/:node_id/resume", private(a.resumeNode))
@@ -181,6 +183,20 @@ func (a *API) publishWorkflow(c fiber.Ctx) error {
 	}
 
 	return c.JSON(published)
+}
+
+func (a *API) unpublishWorkflow(c fiber.Ctx) error {
+	wf, err := a.ownedWorkflow(c, c.Params("id"))
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	unpublished, err := a.publisher.UnpublishWorkflow(c.Context(), wf.ID)
+	if err != nil {
+		return problem(c, statusFor(err), err)
+	}
+
+	return c.JSON(unpublished)
 }
 
 func (a *API) listExecutions(c fiber.Ctx) error {
@@ -388,7 +404,8 @@ func statusFor(err error) int {
 		return fiber.StatusNotFound
 	case errors.Is(err, workflow.ErrInvalidWorkflow):
 		return fiber.StatusUnprocessableEntity
-	case errors.Is(err, persistence.ErrNodeNotWaiting):
+	case errors.Is(err, persistence.ErrNodeNotWaiting),
+		errors.Is(err, persistence.ErrWorkflowNotPublished):
 		return fiber.StatusConflict
 	case errors.Is(err, errTenantRequired):
 		return fiber.StatusBadRequest

@@ -93,6 +93,17 @@ func (r *testWorkflowRepository) GetPublishedWorkflow(ctx context.Context, workf
 	return nil, nil
 }
 
+func (r *testWorkflowRepository) UnpublishWorkflow(_ context.Context, workflowID string) error {
+	workflow, exists := r.workflows[workflowID]
+	if !exists || workflow.Status != models.WorkflowStatusPublished {
+		return persistence.ErrWorkflowNotPublished
+	}
+
+	workflow.Status = models.WorkflowStatusUnpublished
+
+	return nil
+}
+
 func (r *testWorkflowRepository) PublishWorkflow(ctx context.Context, workflowID string) error {
 	workflow, exists := r.workflows[workflowID]
 	if !exists {
@@ -200,7 +211,6 @@ func TestPublishingService_PublishWorkflow_Success(t *testing.T) {
 				Type:     "trigger:webhook",
 				Category: models.CategoryTypeTrigger,
 				Config:   map[string]any{"webhook_path": "/hook"},
-				Enabled:  true,
 			},
 		},
 	}
@@ -259,13 +269,11 @@ func TestPublishingService_PublishWorkflow_RejectsBrokenGraph(t *testing.T) {
 				Type:     "trigger:webhook",
 				Category: models.CategoryTypeTrigger,
 				Config:   map[string]any{"webhook_path": "/hook"},
-				Enabled:  true,
 			},
 			{
-				ID:      "log-1",
-				Type:    "log",
-				Config:  map[string]any{"message": "done"},
-				Enabled: true,
+				ID:     "log-1",
+				Type:   "log",
+				Config: map[string]any{"message": "done"},
 			},
 		},
 		Connections: []*models.Connection{
@@ -340,7 +348,7 @@ func eventWorkflow(id, event string) *models.Workflow {
 		Status:          models.WorkflowStatusDraft,
 		WorkflowGroupID: id,
 		Nodes: []*models.WorkflowNode{
-			{ID: "on-employee", Type: models.NodeTypeTriggerEvent, Category: models.CategoryTypeTrigger, Config: map[string]any{"event": event}, Enabled: true},
+			{ID: "on-employee", Type: models.NodeTypeTriggerEvent, Category: models.CategoryTypeTrigger, Config: map[string]any{"event": event}},
 		},
 	}
 }

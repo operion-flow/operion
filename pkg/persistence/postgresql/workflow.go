@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dukex/operion/pkg/models"
+	"github.com/dukex/operion/pkg/persistence"
 	"github.com/google/uuid"
 )
 
@@ -415,12 +416,50 @@ func (r *WorkflowRepository) PublishWorkflow(ctx context.Context, workflowID str
 		return fmt.Errorf("failed to unpublish existing workflows: %w", err)
 	}
 
+	_, err = tx.ExecContext(ctx,
+		"DELETE FROM schedules WHERE workflow_id IN (SELECT id FROM workflows WHERE workflow_group_id = $1 AND tenant_id = $2)",
+		workflow.WorkflowGroupID, workflow.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to clear schedules of the workflow group: %w", err)
+	}
+
 	// Set current workflow to published (set published_at if not already set)
 	_, err = tx.ExecContext(ctx,
 		"UPDATE workflows SET status = 'published', updated_at = NOW(), published_at = COALESCE(published_at, NOW()) WHERE id = $1",
 		workflowID)
 	if err != nil {
 		return fmt.Errorf("failed to publish workflow: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (r *WorkflowRepository) UnpublishWorkflow(ctx context.Context, workflowID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx,
+		"UPDATE workflows SET status = 'unpublished', updated_at = NOW() WHERE id = $1 AND status = 'published' AND deleted_at IS NULL",
+		workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to unpublish workflow: %w", err)
+	}
+
+	unpublished, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to unpublish workflow: %w", err)
+	}
+
+	if unpublished == 0 {
+		return fmt.Errorf("%w: %s", persistence.ErrWorkflowNotPublished, workflowID)
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM schedules WHERE workflow_id = $1", workflowID); err != nil {
+		return fmt.Errorf("failed to clear schedules of workflow %s: %w", workflowID, err)
 	}
 
 	return tx.Commit()
@@ -478,7 +517,7 @@ func (r *WorkflowRepository) loadWorkflowNodes(ctx context.Context, workflow *mo
 
 	// Load nodes with trigger fields
 	nodesQuery := `
-		SELECT id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type, retry
+		SELECT id, type, category, name, config, position_x, position_y, source_id, provider_id, event_type, retry
 		FROM workflow_nodes
 		WHERE workflow_id = $1
 		ORDER BY created_at
@@ -511,7 +550,6 @@ func (r *WorkflowRepository) loadWorkflowNodes(ctx context.Context, workflow *mo
 			&node.Category,
 			&node.Name,
 			&configJSON,
-			&node.Enabled,
 			&node.PositionX,
 			&node.PositionY,
 			&node.SourceID,
@@ -616,8 +654,8 @@ func (r *WorkflowRepository) saveWorkflowNodes(ctx context.Context, tx *sql.Tx, 
 		}
 
 		query := `
-			INSERT INTO workflow_nodes (id, workflow_id, type, category, name, config, enabled, position_x, position_y, source_id, provider_id, event_type, retry)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			INSERT INTO workflow_nodes (id, workflow_id, type, category, name, config, position_x, position_y, source_id, provider_id, event_type, retry)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		`
 
 		_, err = tx.ExecContext(ctx, query,
@@ -627,7 +665,6 @@ func (r *WorkflowRepository) saveWorkflowNodes(ctx context.Context, tx *sql.Tx, 
 			node.Category,
 			node.Name,
 			configJSON,
-			node.Enabled,
 			node.PositionX,
 			node.PositionY,
 			node.SourceID,
