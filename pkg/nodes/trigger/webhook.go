@@ -15,50 +15,16 @@ const (
 
 // WebhookTriggerNode implements the Node interface for webhook triggers.
 type WebhookTriggerNode struct {
-	id     string
-	config WebhookTriggerConfig
-}
-
-// WebhookTriggerConfig defines the configuration for webhook trigger nodes.
-type WebhookTriggerConfig struct {
-	WebhookPath string            `json:"webhook_path"`
-	Headers     map[string]string `json:"headers"`
-	Method      string            `json:"method"`
+	id string
 }
 
 // NewWebhookTriggerNode creates a new webhook trigger node.
 func NewWebhookTriggerNode(id string, config map[string]any) (*WebhookTriggerNode, error) {
-	// Parse configuration
-	webhookConfig := WebhookTriggerConfig{
-		Method:  "POST",
-		Headers: make(map[string]string),
-	}
-
-	// Parse webhook_path (required)
-	if webhookPath, ok := config["webhook_path"].(string); ok {
-		webhookConfig.WebhookPath = webhookPath
-	} else {
+	if _, ok := config["webhook_path"].(string); !ok {
 		return nil, errors.New("webhook_path is required")
 	}
 
-	// Parse method
-	if method, ok := config["method"].(string); ok {
-		webhookConfig.Method = method
-	}
-
-	// Parse headers
-	if headers, ok := config["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			if headerValue, ok := v.(string); ok {
-				webhookConfig.Headers[k] = headerValue
-			}
-		}
-	}
-
-	return &WebhookTriggerNode{
-		id:     id,
-		config: webhookConfig,
-	}, nil
+	return &WebhookTriggerNode{id: id}, nil
 }
 
 // ID returns the node ID.
@@ -183,23 +149,6 @@ func (n *WebhookTriggerNode) OutputPorts() []models.OutputPort {
 func (n *WebhookTriggerNode) Validate(config map[string]any) error {
 	if webhookPath, ok := config["webhook_path"].(string); !ok || webhookPath == "" {
 		return errors.New("webhook_path is required and must be a non-empty string")
-	}
-
-	if method, ok := config["method"].(string); ok {
-		allowedMethods := []string{"GET", "POST", "PUT", "DELETE", "PATCH"}
-		found := false
-
-		for _, allowed := range allowedMethods {
-			if method == allowed {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
-			return errors.New("method must be one of: GET, POST, PUT, DELETE, PATCH")
-		}
 	}
 
 	return nil
