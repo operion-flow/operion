@@ -95,7 +95,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
-Secrets are environment variables named `OPERION_SECRET_<NAME>`, set by whoever runs Operion (a Kubernetes Secret, Vault Agent, the compose file). `serve` and `run` read them once at start.
+Secrets are environment variables named `OPERION_SECRET_<NAME>`, set by whoever runs Operion (a Kubernetes Secret, Vault Agent, the compose file). `serve` and `run` read them once at start. They belong to the installation, so the workflows of every tenant can read every one of them.
 
 ## HTTP API
 
