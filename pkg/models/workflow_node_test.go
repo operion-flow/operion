@@ -161,13 +161,15 @@ func TestWorkflow_StatusConstants(t *testing.T) {
 }
 
 func TestWorkflow_SimplifiedVersioning(t *testing.T) {
+	const workflowGroupID = "3f2a1b0c-9d8e-4f7a-8b6c-5d4e3f2a1b0c"
+
 	// Test draft workflow
 	draft := &Workflow{
 		ID:              "wf-draft-123",
 		Name:            "My Workflow",
 		Description:     "Draft workflow for testing",
 		Status:          WorkflowStatusDraft,
-		WorkflowGroupID: "workflow-group-1",
+		WorkflowGroupID: workflowGroupID,
 		Nodes: []*WorkflowNode{
 			{
 				ID:      "node-1",
@@ -187,7 +189,7 @@ func TestWorkflow_SimplifiedVersioning(t *testing.T) {
 		Name:            "My Workflow",
 		Description:     "Published workflow for testing",
 		Status:          WorkflowStatusPublished,
-		WorkflowGroupID: "workflow-group-1", // Same group as draft
+		WorkflowGroupID: workflowGroupID, // Same group as draft
 		Nodes: []*WorkflowNode{
 			{
 				ID:      "node-1",
@@ -212,7 +214,7 @@ func TestWorkflow_SimplifiedVersioning(t *testing.T) {
 		Name:            "My Workflow",
 		Description:     "Unpublished workflow for testing",
 		Status:          WorkflowStatusUnpublished,
-		WorkflowGroupID: "workflow-group-1", // Same group
+		WorkflowGroupID: workflowGroupID, // Same group
 		Nodes: []*WorkflowNode{
 			{
 				ID:      "node-1",

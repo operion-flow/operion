@@ -154,7 +154,12 @@ func startServe(t *testing.T, flags ...string) string {
 
 	setup(t)
 
-	databaseURL := freshDatabase(t)
+	return serveOn(t, freshDatabase(t), flags...)
+}
+
+func serveOn(t *testing.T, databaseURL string, flags ...string) string {
+	t.Helper()
+
 	port := strconv.Itoa(freePort(t))
 
 	var output bytes.Buffer
@@ -507,5 +512,32 @@ func TestOnlyTheAPINeedsTheToken(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, statusWithout(http.MethodPost, "/webhooks/"+tenant+webhookPath))
 
 	status, _ := call(t, http.MethodGet, base+"/workflows", nil)
+	assert.Equal(t, http.StatusOK, status)
+}
+
+func TestReadinessFollowsTheDatabase(t *testing.T) {
+	setup(t)
+
+	databaseURL := freshDatabase(t)
+	base := serveOn(t, databaseURL)
+
+	parsed, err := url.Parse(databaseURL)
+	require.NoError(t, err)
+
+	db, err := sql.Open("postgres", adminURL)
+	require.NoError(t, err)
+
+	defer func() { _ = db.Close() }()
+
+	_, err = db.ExecContext(t.Context(), "DROP DATABASE "+strings.TrimPrefix(parsed.Path, "/")+" WITH (FORCE)")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		status, _, err := fetch(t.Context(), http.MethodGet, base+"/readyz", nil)
+
+		return err == nil && status == http.StatusServiceUnavailable
+	}, 10*time.Second, 100*time.Millisecond)
+
+	status, _ := call(t, http.MethodGet, base+"/livez", nil)
 	assert.Equal(t, http.StatusOK, status)
 }

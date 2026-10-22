@@ -73,6 +73,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--workflow` | Path to the workflow JSON (required) |
 | `--event` | Path to the event JSON passed to the trigger (required) |
 | `--trigger` | Trigger node ID, required when the workflow has more than one trigger |
+| `--node-types` | JSON file of remote node types keyed by id, for workflows that use them |
 
 `operion serve`
 
@@ -89,6 +90,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--schema-registry-url` | `SCHEMA_REGISTRY_URL` | | Confluent Schema Registry for `avro` and `protobuf` events; they are skipped when empty |
 | `--schema-registry-username` | `SCHEMA_REGISTRY_USERNAME` | | Schema Registry basic auth username |
 | `--schema-registry-password` | `SCHEMA_REGISTRY_PASSWORD` | | Schema Registry basic auth password |
+| `--node-types` | `NODE_TYPES_FILE` | | JSON file of remote node types keyed by id, registered on start |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
@@ -106,14 +108,15 @@ Workflow and execution routes belong to a tenant, sent in the `X-Tenant-Id` head
 | `POST /workflows/:id/publish` | Validate the graph and publish. A graph the engine cannot run returns 422 with every problem found |
 | `GET /workflows/:id/executions` | List the workflow's executions, newest first; `?limit=` up to 500, default 50 |
 | `GET /executions/:id` | Get an execution with its status and node results |
-| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. Returns 409 when the node is not waiting or was already resumed |
+| `POST /executions/:id/nodes/:node_id/resume` | Continue a waiting node now. A JSON object in the body becomes the node's result; without a body the node passes on the data it held. A remote node waiting for its callback needs the answer itself, `{"port": "<output>", "data": {...}}`, and returns 400 without a `port`. Returns 409 when the node is not waiting or was already resumed |
 | `POST /webhooks/<tenant>/<path>` | Start one execution per published workflow of `<tenant>` whose webhook trigger listens on `<path>` |
 | `POST /callbacks/<execution>/<node>/<token>` | The `callback_url` a remote node answers through later; see [Remote nodes](#remote-nodes) |
 | `GET /catalog/events` | List the events tenants can build workflows on |
 | `PUT /platform/event-definitions/:key`, `GET /platform/event-definitions/:key` | Register and read an event definition (platform operator) |
 | `PUT /platform/node-types/:id` | Register or replace a remote node type |
 | `GET /platform/node-types/:id` | Get a remote node type |
-| `GET /livez`, `GET /readyz` | Health checks |
+| `GET /livez` | Liveness: 200 while the process serves HTTP |
+| `GET /readyz` | Readiness: 200 when Postgres answers a ping within a second, 503 otherwise |
 
 Errors are returned as `application/problem+json`.
 
@@ -149,11 +152,11 @@ The platform operator registers the events tenants can build on with `PUT /platf
 
 A message that cannot be decoded, has no tenant, or whose schema is not in the registry is logged and skipped. Without `--schema-registry-url`, `avro` and `protobuf` events are skipped too. When the registry cannot be reached or answers with an error, the message is not committed and is read again.
 
-Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Every action has an `error` port; an error on an unconnected `error` port fails the execution.
+Actions: `httprequest`, `transform`, `log`, `conditional` (ports `true` and `false`) and `switch`. Each of them has an `error` port; an error on an unconnected `error` port fails the execution.
 
 To post to Slack, point an `httprequest` at the channel's incoming webhook with a body such as `{"text": "Welcome, {{.node_results.trigger.body.name}}"}`.
 
-Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and `wait_until` holds it until `until`, a template that renders an RFC 3339 time. While a branch waits, its node result has status `waiting` and the execution stays `running`; the worker continues the branch from a job due at that time. `operion run` does not wait and continues the branch right away.
+Waits: `wait` holds its branch for `duration` (a Go duration such as `72h`) and `wait_until` holds it until `until`, a template that renders an RFC 3339 time. While a branch waits, its node result has status `waiting` and the execution stays `running`; the worker continues the branch from a job due at that time. `operion run` does not wait and continues the branch right away. Both have only a `success` port.
 
 Retries: any action node accepts `"retry": {"attempts": 3, "initial": "10s", "max": "5m"}` next to its `config`. When the node fails, by an error or by its `error` port, the worker runs it again from a job after `initial`, doubling the wait up to `max`, until it has run `attempts` times in total. Meanwhile its node result has status `retrying` with the last error, and the execution stays `running`. Only after the last attempt does the failure follow the `error` port or fail the execution. `operion run` retries right away.
 
