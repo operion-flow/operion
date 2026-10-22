@@ -91,6 +91,7 @@ curl -s localhost:9091/executions/<execution-id> -H 'Authorization: Bearer dev-t
 | `--schema-registry-username` | `SCHEMA_REGISTRY_USERNAME` | | Schema Registry basic auth username |
 | `--schema-registry-password` | `SCHEMA_REGISTRY_PASSWORD` | | Schema Registry basic auth password |
 | `--node-types` | `NODE_TYPES_FILE` | | JSON file of remote node types keyed by id, registered on start |
+| `--execution-retention` | `EXECUTION_RETENTION` | `0` | How long to keep completed and failed executions, such as `720h`; `0` keeps them forever. Older ones are deleted with their jobs at most hourly, in batches, by whichever replica gets there first; running and waiting executions are never deleted |
 
 Traces are exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set.
 
