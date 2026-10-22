@@ -409,8 +409,8 @@ func (r *WorkflowRepository) PublishWorkflow(ctx context.Context, workflowID str
 
 	// Set all other workflows in group to unpublished
 	_, err = tx.ExecContext(ctx,
-		"UPDATE workflows SET status = 'unpublished' WHERE workflow_group_id = $1 AND status = 'published'",
-		workflow.WorkflowGroupID)
+		"UPDATE workflows SET status = 'unpublished' WHERE workflow_group_id = $1 AND tenant_id = $2 AND status = 'published'",
+		workflow.WorkflowGroupID, workflow.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed to unpublish existing workflows: %w", err)
 	}

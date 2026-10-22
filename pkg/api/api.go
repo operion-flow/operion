@@ -146,6 +146,12 @@ func (a *API) createWorkflow(c fiber.Ctx) error {
 		return problem(c, fiber.StatusBadRequest, err)
 	}
 
+	if wf.WorkflowGroupID != "" {
+		if _, err := a.ownedWorkflow(c, wf.WorkflowGroupID); err != nil {
+			return problem(c, statusFor(err), err)
+		}
+	}
+
 	created, err := a.workflows.Create(c.Context(), &wf)
 	if err != nil {
 		return problem(c, fiber.StatusInternalServerError, err)
