@@ -15,7 +15,7 @@ func TestEventDefinitionsSaveGetAndList(t *testing.T) {
 
 	created := &models.EventDefinition{
 		Key:        "employee_created",
-		Name:       "Employee Criado",
+		Name:       "Employee created",
 		Topic:      "tp_employee_created",
 		Format:     models.EventFormatJSON,
 		Schema:     map[string]any{"type": "object"},
@@ -27,7 +27,7 @@ func TestEventDefinitionsSaveGetAndList(t *testing.T) {
 
 	updated := &models.EventDefinition{
 		Key:        "employee_created",
-		Name:       "Employee Criado",
+		Name:       "Employee created",
 		Topic:      "tp_employee_created_v2",
 		Format:     models.EventFormatAvro,
 		TenantFrom: models.TenantFromHeader,

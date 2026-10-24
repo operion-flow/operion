@@ -139,7 +139,7 @@ The platform operator registers the events tenants can build on with `PUT /platf
 
 ```json
 {
-  "name": "Employee Criado",
+  "name": "Employee created",
   "topic": "tp_employee_created",
   "format": "json",
   "tenant_from": "payload",

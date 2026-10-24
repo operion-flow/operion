@@ -344,7 +344,7 @@ func TestPublishingService_CreateDraftFromPublished(t *testing.T) {
 func eventWorkflow(id, event string) *models.Workflow {
 	return &models.Workflow{
 		ID:              id,
-		Name:            "Employee Criado",
+		Name:            "Employee created",
 		Status:          models.WorkflowStatusDraft,
 		WorkflowGroupID: id,
 		Nodes: []*models.WorkflowNode{

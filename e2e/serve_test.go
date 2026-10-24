@@ -255,7 +255,7 @@ func connection(source, target string) map[string]any {
 }
 
 func workflow(nodes []map[string]any, connections ...map[string]any) map[string]any {
-	return map[string]any{nameKey: "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
+	return map[string]any{nameKey: "Employee created", "description": "greets new employees", "nodes": nodes, "connections": connections}
 }
 
 func webhookTrigger() map[string]any {

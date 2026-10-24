@@ -102,7 +102,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	ingest.NewWebhook(p, p.Jobs(), logger).Register(app)
 
 	definition := `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"description": "greets new employees",
 		"variables": {"team": "Vendas"},
 		"nodes": [

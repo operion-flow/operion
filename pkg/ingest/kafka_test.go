@@ -158,7 +158,7 @@ func TestKafkaReturnsLookupAndStartErrors(t *testing.T) {
 func employeeCreatedDefinition(from models.TenantSource, key string) *models.EventDefinition {
 	return &models.EventDefinition{
 		Key:        "employee_created",
-		Name:       "Employee Criado",
+		Name:       "Employee created",
 		Topic:      employeesTopic,
 		Format:     models.EventFormatJSON,
 		TenantFrom: from,

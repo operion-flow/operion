@@ -105,7 +105,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app, apiToken)
 
 	status, _ := request(t, app, http.MethodPut, "/platform/event-definitions/"+employeeCreatedKey, `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"topic": "`+employeeCreatedTopic+`",
 		"format": "json",
 		"tenant_from": "payload",
@@ -114,7 +114,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 
 	definition := `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"description": "greets new employees",
 		"nodes": [
 			{"id": "trigger", "name": "trigger", "type": "trigger:event", "category": "trigger", "config": {"event": "%s"}},
