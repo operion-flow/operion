@@ -26,7 +26,7 @@ const (
 	errorPort = "error"
 	amount    = "amount"
 	employee  = "Ana"
-	team      = "Vendas"
+	team      = "Sales"
 	tags      = "tags"
 )
 

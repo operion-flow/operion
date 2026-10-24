@@ -69,7 +69,7 @@ func greetWorkflow() *models.Workflow {
 	return &models.Workflow{
 		ID:        "wf",
 		Name:      "greet",
-		Variables: map[string]any{"team": "Vendas"},
+		Variables: map[string]any{"team": "Sales"},
 		Nodes: []*models.WorkflowNode{
 			{ID: "trigger", Type: "trigger:webhook", Category: models.CategoryTypeTrigger, Config: map[string]any{"webhook_path": "/hook"}},
 			{ID: "greet", Type: "log", Config: map[string]any{"message": "hello {{.node_results.trigger.body.name}} from {{.variables.team}}"}},
@@ -120,7 +120,7 @@ func TestRunProcessesJobsUntilCancelled(t *testing.T) {
 
 	for _, execution := range jobs.done {
 		assert.Equal(t, models.ExecutionStatusCompleted, execution.Status)
-		assert.Equal(t, "hello Ana from Vendas", execution.NodeResults["greet"].Data["message"])
+		assert.Equal(t, "hello Ana from Sales", execution.NodeResults["greet"].Data["message"])
 	}
 }
 

@@ -46,7 +46,7 @@ func TestEventDefinitionsSaveGetAndList(t *testing.T) {
 
 	require.NoError(t, definitions.Save(ctx, &models.EventDefinition{
 		Key:        "employee_dismissed",
-		Name:       "Employee Desligado",
+		Name:       "Employee dismissed",
 		Topic:      "tp_employee_dismissed",
 		Format:     models.EventFormatJSON,
 		TenantFrom: models.TenantFromPayload,

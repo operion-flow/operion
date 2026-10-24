@@ -41,7 +41,7 @@ func saveWebhookWorkflow(ctx context.Context, t *testing.T, p *postgresql.Persis
 		Status:          status,
 		WorkflowGroupID: id,
 		TenantID:        acmeTenant,
-		Variables:       map[string]any{"team": "Vendas"},
+		Variables:       map[string]any{"team": "Sales"},
 		Nodes: []*models.WorkflowNode{
 			{ID: triggerNodeID, Name: triggerNodeID, Type: webhookNodeType, Category: models.CategoryTypeTrigger, Config: map[string]any{"webhook_path": path}},
 			{ID: greetNodeID, Name: greetNodeID, Type: logNodeType, Category: models.CategoryTypeAction, Config: map[string]any{messageKey: "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}},
@@ -104,7 +104,7 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	definition := `{
 		"name": "Employee created",
 		"description": "greets new employees",
-		"variables": {"team": "Vendas"},
+		"variables": {"team": "Sales"},
 		"nodes": [
 			{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/lifecycle"}},
 			{"id": "greet", "name": "greet", "type": "log", "category": "action", "config": {"message": "hello {{.node_results.trigger.body.employee}} from {{.variables.team}}"}}
@@ -148,5 +148,5 @@ func TestWorkflowLifecycleThroughAPI(t *testing.T) {
 	}, 10*time.Second, 20*time.Millisecond)
 
 	assert.Equal(t, string(models.ExecutionStatusCompleted), execution["status"], execution["error_message"])
-	assert.Equal(t, "hello Ana from Vendas", execution["node_results"].(map[string]any)[greetNodeID].(map[string]any)["data"].(map[string]any)[messageKey])
+	assert.Equal(t, "hello Ana from Sales", execution["node_results"].(map[string]any)[greetNodeID].(map[string]any)["data"].(map[string]any)[messageKey])
 }

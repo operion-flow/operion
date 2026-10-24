@@ -23,7 +23,7 @@ func typesFile(t *testing.T, content string) string {
 func TestReadTypesPreparesEveryEntry(t *testing.T) {
 	types, err := remote.ReadTypes(typesFile(t, `{
 		"create_benefit": {"name": "Create benefit", "url": "http://benefits.test", "outputs": ["granted"], "schema": {"required": ["amount"]}},
-		"notify_manager": {"name": "Avisar gestor", "url": "http://managers.test", "timeout_seconds": 5}
+		"notify_manager": {"name": "Notify manager", "url": "http://managers.test", "timeout_seconds": 5}
 	}`))
 	require.NoError(t, err)
 
