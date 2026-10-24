@@ -24,6 +24,7 @@ import (
 
 const (
 	employeeCreatedKey   = "employee_created"
+	employeeCreatedName  = "Employee created"
 	employeeCreatedTopic = "tp_employee_created"
 	globexTenant         = "globex"
 	companyIDField       = "company_id"
@@ -34,7 +35,7 @@ func saveEmployeeCreated(ctx context.Context, t *testing.T, p *postgresql.Persis
 
 	require.NoError(t, p.EventDefinitions().Save(ctx, &models.EventDefinition{
 		Key:        employeeCreatedKey,
-		Name:       "Employee created",
+		Name:       employeeCreatedName,
 		Topic:      employeeCreatedTopic,
 		Format:     models.EventFormatJSON,
 		TenantFrom: models.TenantFromPayload,
