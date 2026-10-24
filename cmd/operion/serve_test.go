@@ -34,7 +34,7 @@ func TestServeFailsOnAnInvalidNodeTypesFile(t *testing.T) {
 		databaseURL:  "postgres://operion@127.0.0.1:1/operion?sslmode=disable&connect_timeout=1",
 		pollInterval: time.Millisecond,
 		logLevel:     "error",
-		nodeTypes:    writeFile(t, "node-types.json", `{"create_benefit": {"name": "Criar benefício"}}`),
+		nodeTypes:    writeFile(t, "node-types.json", `{"create_benefit": {"name": "Create benefit"}}`),
 	})
 
 	require.ErrorContains(t, err, `node type "create_benefit"`)

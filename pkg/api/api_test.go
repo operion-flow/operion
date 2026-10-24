@@ -693,7 +693,7 @@ func TestCreateWorkflowVersionNeedsAGroupOfTheCallerTenant(t *testing.T) {
 func TestSaveAndGetNodeType(t *testing.T) {
 	s := newServer()
 
-	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits.internal/operion"}`)
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits.internal/operion"}`)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "create_benefit", body["id"])
 	assert.Equal(t, []any{"success", "error"}, body["outputs"])
@@ -710,7 +710,7 @@ func TestSaveAndGetNodeType(t *testing.T) {
 func TestNodeTypeSecretIsWriteOnly(t *testing.T) {
 	s := newServer()
 
-	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits", "secret": "a-secret-of-sixteen-bytes"}`)
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits", "secret": "a-secret-of-sixteen-bytes"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.NotContains(t, body, "secret")
 	assert.Equal(t, "a-secret-of-sixteen-bytes", s.nodeTypes.nodeTypes["create_benefit"].Secret)
@@ -727,10 +727,10 @@ func TestSaveNodeTypeRejectsBadInput(t *testing.T) {
 		body string
 	}{
 		{name: "invalid json", body: `{`},
-		{name: "missing url", body: `{"name": "Criar benefício"}`},
-		{name: "not an http url", body: `{"name": "Criar benefício", "url": "ftp://benefits"}`},
-		{name: "timeout too long", body: `{"name": "Criar benefício", "url": "https://benefits", "timeout_seconds": 301}`},
-		{name: "short secret", body: `{"name": "Criar benefício", "url": "https://benefits", "secret": "short"}`},
+		{name: "missing url", body: `{"name": "Create benefit"}`},
+		{name: "not an http url", body: `{"name": "Create benefit", "url": "ftp://benefits"}`},
+		{name: "timeout too long", body: `{"name": "Create benefit", "url": "https://benefits", "timeout_seconds": 301}`},
+		{name: "short secret", body: `{"name": "Create benefit", "url": "https://benefits", "secret": "short"}`},
 	}
 
 	for _, tt := range tests {
@@ -749,7 +749,7 @@ func TestSaveNodeTypeStoreError(t *testing.T) {
 	s := newServer()
 	s.nodeTypes.err = errStore
 
-	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits"}`)
+	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits"}`)
 
 	assert.Equal(t, http.StatusInternalServerError, status)
 }

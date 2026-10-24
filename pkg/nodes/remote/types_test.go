@@ -22,7 +22,7 @@ func typesFile(t *testing.T, content string) string {
 
 func TestReadTypesPreparesEveryEntry(t *testing.T) {
 	types, err := remote.ReadTypes(typesFile(t, `{
-		"create_benefit": {"name": "Criar benefício", "url": "http://benefits.test", "outputs": ["granted"], "schema": {"required": ["amount"]}},
+		"create_benefit": {"name": "Create benefit", "url": "http://benefits.test", "outputs": ["granted"], "schema": {"required": ["amount"]}},
 		"notify_manager": {"name": "Avisar gestor", "url": "http://managers.test", "timeout_seconds": 5}
 	}`))
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestReadTypesRejectsInvalidFiles(t *testing.T) {
 	_, err = remote.ReadTypes(broken)
 	require.ErrorContains(t, err, broken)
 
-	_, err = remote.ReadTypes(typesFile(t, `{"create_benefit": {"name": "Criar benefício", "url": "not a url"}}`))
+	_, err = remote.ReadTypes(typesFile(t, `{"create_benefit": {"name": "Create benefit", "url": "not a url"}}`))
 	require.ErrorContains(t, err, `node type "create_benefit"`)
 	require.ErrorContains(t, err, "URL")
 

@@ -196,7 +196,7 @@ func TestRunResolvesRemoteNodeTypesFromAFile(t *testing.T) {
 	}))
 	t.Cleanup(plugin.Close)
 
-	nodeTypes := writeFile(t, "node-types.json", `{"create_benefit": {"name": "Criar benefício", "url": "`+plugin.URL+`", "outputs": ["approved"]}}`)
+	nodeTypes := writeFile(t, "node-types.json", `{"create_benefit": {"name": "Create benefit", "url": "`+plugin.URL+`", "outputs": ["approved"]}}`)
 	workflow := writeFile(t, "workflow.json", `{
   "id": "benefit",
   "name": "benefit",

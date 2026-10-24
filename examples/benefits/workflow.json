@@ -1,5 +1,5 @@
 {
-  "name": "Benefício na admissão",
+  "name": "Hiring benefit",
   "description": "Grants the hiring benefit when an employee is created",
   "nodes": [
     {"id": "trigger", "name": "Employee created", "type": "trigger:webhook", "category": "trigger", "config": {"webhook_path": "/employees"}},

@@ -41,7 +41,7 @@ func startPlugin(t *testing.T) *httptest.Server {
 func benefits(t *testing.T, url, signWith, callbackBase, amount string) *remote.Node {
 	t.Helper()
 
-	nodeType := models.RemoteNodeType{ID: "grant_benefit", Name: "Conceder benefício", URL: url, Secret: signWith, Outputs: []string{portApproved}}
+	nodeType := models.RemoteNodeType{ID: "grant_benefit", Name: "Grant benefit", URL: url, Secret: signWith, Outputs: []string{portApproved}}
 
 	return remote.New(nodeType, benefitNode, map[string]any{amountKey: amount}, http.DefaultClient, callbackBase)
 }

@@ -174,7 +174,7 @@ A node type can live in any service that speaks HTTP, in any language, deployed 
 
 ```bash
 curl -X PUT localhost:9091/platform/node-types/create_benefit -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' -d '{
-  "name": "Criar benefício",
+  "name": "Create benefit",
   "url": "http://benefits.internal/operion",
   "outputs": ["approved", "rejected"],
   "timeout_seconds": 10,
@@ -189,7 +189,7 @@ Node types can also live in a file, a JSON object keyed by node type id with the
 ```json
 {
   "create_benefit": {
-    "name": "Criar benefício",
+    "name": "Create benefit",
     "url": "http://benefits.internal/operion",
     "outputs": ["approved", "rejected"],
     "schema": {"required": ["amount"]}

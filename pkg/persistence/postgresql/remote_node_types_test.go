@@ -20,7 +20,7 @@ func TestRemoteNodeTypesSaveAndGet(t *testing.T) {
 
 	created := &models.RemoteNodeType{
 		ID:             "create_benefit",
-		Name:           "Criar benefício",
+		Name:           "Create benefit",
 		URL:            "http://benefits.internal/run",
 		Outputs:        []string{approvedPort, errorPort},
 		Schema:         map[string]any{"required": []any{"amount"}},
@@ -31,8 +31,8 @@ func TestRemoteNodeTypesSaveAndGet(t *testing.T) {
 
 	updated := &models.RemoteNodeType{
 		ID:             "create_benefit",
-		Name:           "Criar benefício",
-		Description:    "Cria o benefício no sistema de benefícios",
+		Name:           "Create benefit",
+		Description:    "Creates the benefit in the benefits system",
 		URL:            "http://benefits.internal/v2/run",
 		Secret:         "a-secret-of-sixteen-bytes",
 		Outputs:        []string{approvedPort, "rejected", errorPort},
@@ -46,7 +46,7 @@ func TestRemoteNodeTypesSaveAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://benefits.internal/v2/run", loaded.URL)
 	assert.Equal(t, "a-secret-of-sixteen-bytes", loaded.Secret)
-	assert.Equal(t, "Cria o benefício no sistema de benefícios", loaded.Description)
+	assert.Equal(t, "Creates the benefit in the benefits system", loaded.Description)
 	assert.Equal(t, []string{approvedPort, "rejected", errorPort}, loaded.Outputs)
 	assert.Equal(t, 20, loaded.TimeoutSeconds)
 	assert.Nil(t, loaded.Schema)
