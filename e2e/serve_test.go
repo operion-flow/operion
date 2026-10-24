@@ -255,7 +255,7 @@ func connection(source, target string) map[string]any {
 }
 
 func workflow(nodes []map[string]any, connections ...map[string]any) map[string]any {
-	return map[string]any{nameKey: "Employee Criado", "description": "greets new employees", "nodes": nodes, "connections": connections}
+	return map[string]any{nameKey: "Employee created", "description": "greets new employees", "nodes": nodes, "connections": connections}
 }
 
 func webhookTrigger() map[string]any {
@@ -277,7 +277,7 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 		received <- request{method: r.Method, path: r.URL.Path, contentType: r.Header.Get("Content-Type"), body: string(body)}
 
 		w.Header().Set("Content-Type", jsonType)
-		_, _ = w.Write([]byte(`{"greeting": "Olá, Ana"}`))
+		_, _ = w.Write([]byte(`{"greeting": "Hello, Ana"}`))
 	}))
 	defer external.Close()
 
@@ -332,8 +332,8 @@ func TestWebhookRunsAWorkflowThatCallsAnExternalAPI(t *testing.T) {
 	}
 
 	assert.InDelta(t, http.StatusOK, data("notify")["status_code"], 0)
-	assert.Equal(t, "Olá, Ana", data("welcome")["result"])
-	assert.Equal(t, "Olá, Ana", data("done")["message"])
+	assert.Equal(t, "Hello, Ana", data("welcome")["result"])
+	assert.Equal(t, "Hello, Ana", data("done")["message"])
 
 	select {
 	case got := <-received:
@@ -421,7 +421,7 @@ func startAsyncBenefit(t *testing.T, base string, plugin http.HandlerFunc) strin
 	t.Cleanup(server.Close)
 
 	status, saved := call(t, http.MethodPut, base+"/platform/node-types/create_benefit", map[string]any{
-		nameKey: "Criar benefício", "url": server.URL, "outputs": []string{approved, "rejected"},
+		nameKey: "Create benefit", "url": server.URL, "outputs": []string{approved, "rejected"},
 	})
 	require.Equal(t, http.StatusOK, status, saved)
 
@@ -506,13 +506,13 @@ func TestARemoteNodeThatNeverAnswersFailsAtItsDeadline(t *testing.T) {
 
 func TestServeRegistersNodeTypesFromAFile(t *testing.T) {
 	nodeTypes := filepath.Join(t.TempDir(), "node-types.json")
-	require.NoError(t, os.WriteFile(nodeTypes, []byte(`{"create_benefit": {"name": "Criar benefício", "url": "http://benefits.internal/operion", "outputs": ["approved"]}}`), 0o600))
+	require.NoError(t, os.WriteFile(nodeTypes, []byte(`{"create_benefit": {"name": "Create benefit", "url": "http://benefits.internal/operion", "outputs": ["approved"]}}`), 0o600))
 
 	base := startServe(t, "--node-types", nodeTypes)
 
 	status, nodeType := call(t, http.MethodGet, base+"/platform/node-types/create_benefit", nil)
 	require.Equal(t, http.StatusOK, status, nodeType)
-	assert.Equal(t, "Criar benefício", nodeType[nameKey])
+	assert.Equal(t, "Create benefit", nodeType[nameKey])
 	assert.Equal(t, []any{approved, "error"}, nodeType["outputs"])
 }
 

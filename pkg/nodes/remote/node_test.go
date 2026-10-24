@@ -26,14 +26,14 @@ const (
 	errorPort = "error"
 	amount    = "amount"
 	employee  = "Ana"
-	team      = "Vendas"
+	team      = "Sales"
 	tags      = "tags"
 )
 
 func benefitType(url string) models.RemoteNodeType {
 	return models.RemoteNodeType{
 		ID:      "create_benefit",
-		Name:    "Criar benefício",
+		Name:    "Create benefit",
 		URL:     url,
 		Outputs: []string{"approved", "rejected"},
 		Schema:  map[string]any{"required": []any{amount}},

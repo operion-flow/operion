@@ -253,7 +253,7 @@ func newServer() server {
 	return server{
 		tenant:    acmeTenant,
 		bearer:    apiToken,
-		workflows: &fakeWorkflows{workflows: map[string]*models.Workflow{"wf": {ID: "wf", Name: "Employee Criado", TenantID: acmeTenant}}},
+		workflows: &fakeWorkflows{workflows: map[string]*models.Workflow{"wf": {ID: "wf", Name: "Employee created", TenantID: acmeTenant}}},
 		executions: fakeExecutions{executions: map[string]*models.ExecutionContext{
 			"exec": {ID: "exec", WorkflowID: "wf", Status: models.ExecutionStatusCompleted},
 		}},
@@ -272,7 +272,7 @@ func TestListAndGetWorkflows(t *testing.T) {
 
 	status, body = s.do(t, http.MethodGet, "/workflows/wf", "")
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, "Employee Criado", body["name"])
+	assert.Equal(t, "Employee created", body["name"])
 
 	status, body = s.do(t, http.MethodGet, "/workflows/missing", "")
 	assert.Equal(t, http.StatusNotFound, status)
@@ -282,7 +282,7 @@ func TestListAndGetWorkflows(t *testing.T) {
 func TestCreateWorkflowAlwaysStartsAsDraft(t *testing.T) {
 	s := newServer()
 
-	status, body := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "status": "published"}`)
+	status, body := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee created", "description": "greets", "status": "published"}`)
 
 	require.Equal(t, http.StatusCreated, status)
 	assert.Equal(t, "created", body["id"])
@@ -366,7 +366,7 @@ func TestUnpublishWorkflow(t *testing.T) {
 func TestCreateWorkflowIgnoresTheOldEnabledKey(t *testing.T) {
 	s := newServer()
 
-	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "nodes": [{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": false, "config": {"webhook_path": "/hire"}}]}`)
+	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee created", "description": "greets", "nodes": [{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": false, "config": {"webhook_path": "/hire"}}]}`)
 
 	require.Equal(t, http.StatusCreated, status)
 	require.Len(t, s.workflows.created, 1)
@@ -471,12 +471,12 @@ func TestStoreErrorsReturnInternalError(t *testing.T) {
 		assert.Equal(t, errStore.Error(), body["detail"], request[1])
 	}
 
-	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets"}`)
+	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee created", "description": "greets"}`)
 	assert.Equal(t, http.StatusInternalServerError, status)
 }
 
 const employeeCreated = `{
-	"name": "Employee Criado",
+	"name": "Employee created",
 	"description": "A company hired someone",
 	"topic": "tp_employee_created",
 	"format": "json",
@@ -508,9 +508,9 @@ func TestSaveEventDefinitionRejectsBadInput(t *testing.T) {
 		body string
 	}{
 		{name: "invalid json", body: `{`},
-		{name: "missing topic", body: `{"name": "Employee Criado", "format": "json", "tenant_from": "payload", "tenant_key": "company_id"}`},
-		{name: "unknown format", body: `{"name": "Employee Criado", "topic": "t", "format": "xml", "tenant_from": "payload", "tenant_key": "company_id"}`},
-		{name: "unknown tenant source", body: `{"name": "Employee Criado", "topic": "t", "format": "json", "tenant_from": "query", "tenant_key": "company_id"}`},
+		{name: "missing topic", body: `{"name": "Employee created", "format": "json", "tenant_from": "payload", "tenant_key": "company_id"}`},
+		{name: "unknown format", body: `{"name": "Employee created", "topic": "t", "format": "xml", "tenant_from": "payload", "tenant_key": "company_id"}`},
+		{name: "unknown tenant source", body: `{"name": "Employee created", "topic": "t", "format": "json", "tenant_from": "query", "tenant_key": "company_id"}`},
 	}
 
 	for _, tt := range tests {
@@ -536,7 +536,7 @@ func TestCatalogShowsEventsWithoutRouting(t *testing.T) {
 	require.Len(t, body["items"], 1)
 
 	event := body["items"].([]any)[0].(map[string]any)
-	assert.Equal(t, "Employee Criado", event["name"])
+	assert.Equal(t, "Employee created", event["name"])
 	assert.Equal(t, map[string]any{"type": "object", "required": []any{"company_id"}}, event["schema"])
 	assert.NotContains(t, event, "topic")
 	assert.NotContains(t, event, "tenant_key")
@@ -606,7 +606,7 @@ func TestTenantRoutesRequireTheTenantHeader(t *testing.T) {
 		{http.MethodGet, "/executions/exec"},
 		{http.MethodPost, resumeHold},
 	} {
-		status, body := s.do(t, request[0], request[1], `{"name": "Employee Criado", "description": "greets"}`)
+		status, body := s.do(t, request[0], request[1], `{"name": "Employee created", "description": "greets"}`)
 		assert.Equal(t, http.StatusBadRequest, status, request[1])
 		assert.Equal(t, "X-Tenant-Id header is required", body["detail"], request[1])
 	}
@@ -643,7 +643,7 @@ func TestCreateWorkflowBelongsToTheCallerTenant(t *testing.T) {
 	s := newServer()
 	s.tenant = "globex"
 
-	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "tenant_id": "acme"}`)
+	status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee created", "description": "greets", "tenant_id": "acme"}`)
 
 	require.Equal(t, http.StatusCreated, status)
 	require.Len(t, s.workflows.created, 1)
@@ -674,7 +674,7 @@ func TestCreateWorkflowVersionNeedsAGroupOfTheCallerTenant(t *testing.T) {
 			s.workflows.workflows[acmeGroup] = &models.Workflow{ID: acmeGroup, TenantID: acmeTenant}
 			s.workflows.workflows[globexGroup] = &models.Workflow{ID: globexGroup, TenantID: "globex"}
 
-			status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee Criado", "description": "greets", "workflow_group_id": "`+tt.group+`"}`)
+			status, _ := s.do(t, http.MethodPost, "/workflows", `{"name": "Employee created", "description": "greets", "workflow_group_id": "`+tt.group+`"}`)
 
 			require.Equal(t, tt.status, status)
 
@@ -693,7 +693,7 @@ func TestCreateWorkflowVersionNeedsAGroupOfTheCallerTenant(t *testing.T) {
 func TestSaveAndGetNodeType(t *testing.T) {
 	s := newServer()
 
-	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits.internal/operion"}`)
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits.internal/operion"}`)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "create_benefit", body["id"])
 	assert.Equal(t, []any{"success", "error"}, body["outputs"])
@@ -710,7 +710,7 @@ func TestSaveAndGetNodeType(t *testing.T) {
 func TestNodeTypeSecretIsWriteOnly(t *testing.T) {
 	s := newServer()
 
-	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits", "secret": "a-secret-of-sixteen-bytes"}`)
+	status, body := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits", "secret": "a-secret-of-sixteen-bytes"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.NotContains(t, body, "secret")
 	assert.Equal(t, "a-secret-of-sixteen-bytes", s.nodeTypes.nodeTypes["create_benefit"].Secret)
@@ -727,10 +727,10 @@ func TestSaveNodeTypeRejectsBadInput(t *testing.T) {
 		body string
 	}{
 		{name: "invalid json", body: `{`},
-		{name: "missing url", body: `{"name": "Criar benefício"}`},
-		{name: "not an http url", body: `{"name": "Criar benefício", "url": "ftp://benefits"}`},
-		{name: "timeout too long", body: `{"name": "Criar benefício", "url": "https://benefits", "timeout_seconds": 301}`},
-		{name: "short secret", body: `{"name": "Criar benefício", "url": "https://benefits", "secret": "short"}`},
+		{name: "missing url", body: `{"name": "Create benefit"}`},
+		{name: "not an http url", body: `{"name": "Create benefit", "url": "ftp://benefits"}`},
+		{name: "timeout too long", body: `{"name": "Create benefit", "url": "https://benefits", "timeout_seconds": 301}`},
+		{name: "short secret", body: `{"name": "Create benefit", "url": "https://benefits", "secret": "short"}`},
 	}
 
 	for _, tt := range tests {
@@ -749,7 +749,7 @@ func TestSaveNodeTypeStoreError(t *testing.T) {
 	s := newServer()
 	s.nodeTypes.err = errStore
 
-	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Criar benefício", "url": "https://benefits"}`)
+	status, _ := s.do(t, http.MethodPut, "/platform/node-types/create_benefit", `{"name": "Create benefit", "url": "https://benefits"}`)
 
 	assert.Equal(t, http.StatusInternalServerError, status)
 }
@@ -776,7 +776,7 @@ func TestEveryRouteRequiresTheBearerToken(t *testing.T) {
 		s.bearer = bearer
 
 		for _, request := range allRoutes {
-			status, body := s.do(t, request[0], request[1], `{"name": "Employee Criado", "description": "greets"}`)
+			status, body := s.do(t, request[0], request[1], `{"name": "Employee created", "description": "greets"}`)
 			assert.Equal(t, http.StatusUnauthorized, status, request[1])
 			assert.Equal(t, "a valid bearer token is required", body["detail"], request[1])
 		}

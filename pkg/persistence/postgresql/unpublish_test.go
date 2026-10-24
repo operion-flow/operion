@@ -150,7 +150,7 @@ func TestUnpublishThroughAPI(t *testing.T) {
 	ingest.NewWebhook(p, p.Jobs(), slog.New(slog.DiscardHandler)).Register(app)
 
 	status, created := request(t, app, http.MethodPost, "/workflows", `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"description": "greets new employees",
 		"nodes": [
 			{"id": "trigger", "name": "trigger", "type": "trigger:webhook", "category": "trigger", "enabled": false, "config": {"webhook_path": "/unpublish"}},

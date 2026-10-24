@@ -24,6 +24,7 @@ import (
 
 const (
 	employeeCreatedKey   = "employee_created"
+	employeeCreatedName  = "Employee created"
 	employeeCreatedTopic = "tp_employee_created"
 	globexTenant         = "globex"
 	companyIDField       = "company_id"
@@ -34,7 +35,7 @@ func saveEmployeeCreated(ctx context.Context, t *testing.T, p *postgresql.Persis
 
 	require.NoError(t, p.EventDefinitions().Save(ctx, &models.EventDefinition{
 		Key:        employeeCreatedKey,
-		Name:       "Employee created",
+		Name:       employeeCreatedName,
 		Topic:      employeeCreatedTopic,
 		Format:     models.EventFormatJSON,
 		TenantFrom: models.TenantFromPayload,
@@ -105,7 +106,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	api.New(workflow.NewRepository(p), workflow.NewPublishingService(p, e, p.EventDefinitions()), p.ExecutionContextRepository(), p.EventDefinitions(), p.Jobs(), p.RemoteNodeTypes()).Register(app, apiToken)
 
 	status, _ := request(t, app, http.MethodPut, "/platform/event-definitions/"+employeeCreatedKey, `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"topic": "`+employeeCreatedTopic+`",
 		"format": "json",
 		"tenant_from": "payload",
@@ -114,7 +115,7 @@ func TestCatalogEventRunsOnlyTheTenantWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 
 	definition := `{
-		"name": "Employee Criado",
+		"name": "Employee created",
 		"description": "greets new employees",
 		"nodes": [
 			{"id": "trigger", "name": "trigger", "type": "trigger:event", "category": "trigger", "config": {"event": "%s"}},
